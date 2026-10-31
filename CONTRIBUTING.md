@@ -8,18 +8,13 @@ is put together and what a change should look like.
 ```bash
 git clone https://github.com/wxmpro/iina-sub.git
 cd iina-sub
-node tests/run.js
-```
-
-The tests need nothing but Node. They run the plugin logic against a small
-stand in for the player, so they finish in a second.
-
-To try the plugin without packaging it, build it and open the result:
-
-```bash
 bash scripts/package.sh
 open dist/io.github.xinmin.iina-sub.iinaplgz
 ```
+
+The build produces the `.iinaplgz` file that IINA installs. The archive is a
+plain ZIP file despite its name, and it holds the plugin files flat, without a
+folder around them.
 
 ## The parts of the code
 
@@ -69,16 +64,19 @@ An engine turns one chunk of audio into cues. The contract is small:
 Register it in `ENGINES` at the bottom of `engines.js` and it shows up in the
 settings page.
 
-## The tests
+## Checking a change
 
-`tests/run.js` holds the unit tests. `tests/integration.js` runs the real
-pipeline over a real file and needs whisper.cpp and a model:
+The plugin has to work on a machine that has nothing but macOS and IINA on
+it, so please check a change in the places it can go wrong:
 
-```bash
-node tests/integration.js /path/to/a/video.mp4
-```
-
-Please add a test with every change that can be tested without a player.
+- a video that has no transcript yet is transcribed when it is opened, and the
+  subtitles appear while it is still being transcribed;
+- a video that has a transcript is loaded from the cache straight away;
+- the export writes a file next to the video and leaves nothing else behind;
+- the folder of the video is untouched until the export is asked for;
+- a file name with a quote, a semicolon or a space in it is handled;
+- a file that the search index of the system does not know is transcribed just
+  as well as one in your downloads folder.
 
 ## Reporting a problem
 
