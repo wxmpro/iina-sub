@@ -32,14 +32,6 @@ const VIDEO_EXTENSIONS = [
 /** The transcription that is currently running, if any. */
 let activeJob = null;
 
-/**
- * A transcription that is being set up.
- *
- * The setup takes a moment, and until it is finished the job does not exist
- * yet. Without this flag two transcriptions could start at the same time.
- */
-let starting = false;
-
 /** Path of the subtitle file that is currently loaded into the player. */
 let loadedSubtitlePath = null;
 
@@ -57,7 +49,7 @@ const activityLog = [];
  * Whether a transcription is running or about to run.
  */
 function isBusy() {
-  return activeJob !== null || starting;
+  return activeJob !== null;
 }
 
 /**
@@ -675,9 +667,10 @@ async function runJob(job) {
  * Build the job that transcribes one media file.
  *
  * The same shape is used for a single file and for a batch, so that the two
- * cannot drift apart.
+ * cannot drift apart. Nothing is waited for here, so that the job can be
+ * put in place before the first wait.
  */
-async function createJob(mediaPath, durationMs, config, engine, options) {
+function createJob(mediaPath, durationMs, config, engine, options) {
   const opts = options || {};
   const paths = resolveCachePaths(mediaPath);
   if (!paths) return null;
@@ -686,10 +679,6 @@ async function createJob(mediaPath, durationMs, config, engine, options) {
   // track of the file is used.
   const audioTrackIndex =
     opts.audioTrackIndex === undefined ? currentAudioTrackIndex() : opts.audioTrackIndex;
-
-  // The decoder is built before the job starts, so that a machine without a
-  // compiler says so right away and not in the middle of the first chunk.
-  const helper = await decoder.ensureDecoder();
 
   return {
     mediaPath: mediaPath,
@@ -700,16 +689,12 @@ async function createJob(mediaPath, durationMs, config, engine, options) {
     cues: [],
     cancelled: false,
     writeFailed: false,
-    fingerprint: await buildFingerprint(
-      mediaPath,
-      config,
-      effectiveTrackIndex(audioTrackIndex)
-    ),
+    fingerprint: null,
     context: {
       config: config,
       mediaPath: mediaPath,
       audioTrackIndex: audioTrackIndex,
-      decoder: helper,
+      decoder: null,
     },
     positionMs:
       opts.positionMs ||
@@ -717,6 +702,22 @@ async function createJob(mediaPath, durationMs, config, engine, options) {
         return 0;
       },
   };
+}
+
+/**
+ * Fill in the parts of a job that have to wait.
+ *
+ * The decoder is built here, so that a machine without a compiler says so
+ * right away and not in the middle of the first chunk.
+ */
+async function prepareJob(job) {
+  job.fingerprint = await buildFingerprint(
+    job.mediaPath,
+    job.config,
+    effectiveTrackIndex(job.context.audioTrackIndex)
+  );
+  job.context.decoder = await decoder.ensureDecoder();
+  return job;
 }
 
 /**
@@ -728,19 +729,27 @@ async function startTranscription(mediaPath, durationMs, silent) {
     return;
   }
 
-  // The flag is set before the first await, so that a second request cannot
-  // slip in while this one is still being set up.
-  starting = true;
+  // The job is put in place before the first wait, so that a second request
+  // cannot slip in while this one is still being set up. There is one lock
+  // only, and it is this one.
+  const job = createJob(mediaPath, durationMs, readConfig(), null, {
+    positionMs: function () {
+      if (mediaPath !== currentMediaPath()) return 0;
+      return currentDurationMs() ? Number(mpv.getNumber("time-pos") || 0) * 1000 : 0;
+    },
+  });
+  if (!job) return;
+  activeJob = job;
+
   try {
-    await startTranscriptionNow(mediaPath, durationMs, silent);
+    await startTranscriptionNow(job, durationMs, silent);
   } catch (e) {
     const message = e && e.message ? e.message : String(e);
     console.error("iina-sub: " + message);
     core.osd("iina-sub: " + shortMessage(message));
     pushStatus({ phase: "error", message: "Failed", detail: shortMessage(message) });
     if (!silent) utils.ask("iina-sub\n\n" + message);
-  } finally {
-    starting = false;
+    if (activeJob === job) activeJob = null;
   }
 }
 
@@ -753,8 +762,9 @@ function shortMessage(text) {
   return message.length > 200 ? message.slice(0, 200) + "…" : message;
 }
 
-async function startTranscriptionNow(mediaPath, durationMs, silent) {
-  const config = readConfig();
+async function startTranscriptionNow(job, durationMs, silent) {
+  const mediaPath = job.mediaPath;
+  const config = job.config;
   let engine;
   try {
     engine = validateConfig(config);
@@ -765,11 +775,11 @@ async function startTranscriptionNow(mediaPath, durationMs, silent) {
     // A run the user asked for deserves a dialog, one that started by itself
     // only deserves a note on the screen.
     if (!silent) utils.ask("iina-sub\n\n" + message);
+    if (activeJob === job) activeJob = null;
     return;
   }
 
-  const paths = resolveCachePaths(mediaPath);
-  if (!paths) return;
+  job.engine = engine;
 
   // The player may not know the length of the file yet, for example right
   // after it was opened. The length is then read from the file itself.
@@ -782,6 +792,7 @@ async function startTranscriptionNow(mediaPath, durationMs, silent) {
     core.osd("iina-sub: " + message);
     pushStatus({ phase: "error", message: "Failed", detail: message });
     if (!silent) utils.ask("iina-sub\n\n" + message);
+    if (activeJob === job) activeJob = null;
     return;
   }
 
@@ -791,13 +802,8 @@ async function startTranscriptionNow(mediaPath, durationMs, silent) {
   await srt.ensureDir(utils.resolvePath("@data/fingerprints"));
   await srt.ensureDir(worker.chunkDirectory());
 
-  const job = await createJob(mediaPath, durationMs, config, engine, {
-    positionMs: function () {
-      if (mediaPath !== currentMediaPath()) return 0;
-      return currentDurationMs() ? Number(mpv.getNumber("time-pos") || 0) * 1000 : 0;
-    },
-  });
-  if (!job) return;
+  job.durationMs = durationMs;
+  await prepareJob(job);
 
   // A mark that is left over from an earlier run would say that a
   // transcript which is only half written is complete.
@@ -807,7 +813,6 @@ async function startTranscriptionNow(mediaPath, durationMs, silent) {
     /* ignore */
   }
 
-  activeJob = job;
   core.osd("iina-sub: starting transcription");
   pushStatus({
     phase: "starting",
@@ -1008,12 +1013,13 @@ async function runBatch(files, config, engine) {
       }
     }
 
-    const job = await createJob(path, duration, config, engine, {
+    const job = createJob(path, duration, config, engine, {
       // The file is not the one that is playing, so it has no track of its
       // own and the first audio track of the file is used.
       audioTrackIndex: null,
     });
     if (!job) continue;
+    await prepareJob(job);
 
     try {
       if (file.exists(job.paths.stamp)) file.delete(job.paths.stamp);

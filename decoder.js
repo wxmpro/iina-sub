@@ -60,6 +60,12 @@ if arguments[1] == "--duration" {
     guard arguments.count >= 3 else {
         fail("usage: vina --duration <media-file>")
     }
+    // Reading the length of a file is a matter of a moment. A file that
+    // keeps the media framework busy must not hold the plugin up.
+    DispatchQueue.global().asyncAfter(deadline: .now() + 60) {
+        FileHandle.standardError.write("vina: reading the length took too long\n".data(using: .utf8)!)
+        exit(5)
+    }
     let url = URL(fileURLWithPath: arguments[2])
     let done = DispatchSemaphore(value: 0)
     Task {
@@ -166,6 +172,13 @@ if let path = outputPath {
 }
 
 let done = DispatchSemaphore(value: 0)
+
+// The helper never waits for ever. A file that the media framework cannot
+// make sense of can keep it busy, and the plugin would wait with it.
+DispatchQueue.global().asyncAfter(deadline: .now() + 300) {
+    FileHandle.standardError.write("vina: the decoding took too long\n".data(using: .utf8)!)
+    exit(5)
+}
 
 // The exit code tells the caller what happened.
 //   0  the audio was written
