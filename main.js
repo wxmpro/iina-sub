@@ -1065,6 +1065,19 @@ async function commandExport() {
     return;
   }
 
+  // A transcript that lost a part of the file is not complete. The mark that
+  // says so is written at the end of a run, so its absence means that
+  // something went wrong. The file is still written when the user says so,
+  // but the state is named first.
+  if (!file.exists(paths.stamp)) {
+    const answer = utils.ask(
+      "iina-sub\n\nThe subtitles of this video are not complete. " +
+        "Some parts of the file could not be transcribed.\n\n" +
+        "Export them anyway?"
+    );
+    if (answer === false) return;
+  }
+
   const target = srt.subtitlePathFor(mediaPath);
   if (!target) {
     utils.ask(
@@ -1093,8 +1106,18 @@ async function commandExport() {
   // does not write through a link that is already there: the link is
   // replaced, and the file it points at is left alone. Nothing is written
   // into the folder of the video but the subtitle file itself.
+  //
+  // The copy gets the same permissions as the video, so that a video only
+  // its owner may read does not leave its dialogue behind in a file that
+  // everybody on the machine can read.
+  const mode = (await srt.permissionBitsOf(mediaPath)) || "644";
   try {
-    const res = await utils.exec("/usr/bin/install", ["-m", "0644", paths.subtitle, target]);
+    const res = await utils.exec("/usr/bin/install", [
+      "-m",
+      mode,
+      paths.subtitle,
+      target,
+    ]);
     if (res.status !== 0) {
       throw new Error((res.stderr || "").trim() || "exit " + res.status);
     }

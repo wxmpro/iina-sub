@@ -151,6 +151,7 @@ async function probeDuration(mediaPath) {
       "-name",
       "kMDItemDurationSeconds",
       "-raw",
+      "--",
       mediaPath,
     ]);
     if (res.status !== 0 || !res.stdout) return 0;

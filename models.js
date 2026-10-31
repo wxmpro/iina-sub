@@ -242,7 +242,7 @@ async function download(modelName, onProgress) {
 
 async function srtStat(path) {
   try {
-    const res = await utils.exec("/usr/bin/stat", ["-f", "%z", path]);
+    const res = await utils.exec("/usr/bin/stat", ["-f", "%z", "--", path]);
     if (res.status !== 0) return null;
     return { size: Number(String(res.stdout).trim()) };
   } catch (e) {
@@ -255,7 +255,7 @@ async function srtStat(path) {
  */
 async function sha256Of(path) {
   try {
-    const res = await utils.exec("/usr/bin/shasum", ["-a", "256", path]);
+    const res = await utils.exec("/usr/bin/shasum", ["-a", "256", "--", path]);
     if (res.status !== 0) return null;
     const digest = String(res.stdout || "").trim().split(/\s+/)[0];
     return /^[0-9a-f]{64}$/i.test(digest) ? digest : null;

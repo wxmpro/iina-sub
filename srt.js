@@ -199,7 +199,10 @@ async function statOf(path) {
     // The number of the file is read as well. A file that is replaced by
     // another one of the same size and the same time of change gets another
     // number, so the cache of the old file is not taken for the new one.
-    const res = await utils.exec("/usr/bin/stat", ["-f", "%z|%m|%i", path]);
+    // The name of the file may be one the user wrote, so the list of
+    // options is closed before the name is given. A file whose name starts
+    // with a dash is then a file and not an option.
+    const res = await utils.exec("/usr/bin/stat", ["-f", "%z|%m|%i", "--", path]);
     if (res.status !== 0 || !res.stdout) return null;
     const [size, mtime, inode] = res.stdout.trim().split("|");
     return { size: Number(size), mtime: Number(mtime), inode: String(inode || "") };
@@ -219,9 +222,32 @@ async function statOf(path) {
 async function fileTypeOf(path) {
   if (!path) return "";
   try {
-    const res = await utils.exec("/usr/bin/stat", ["-f", "%HT", path]);
+    const res = await utils.exec("/usr/bin/stat", ["-f", "%HT", "--", path]);
     if (res.status !== 0 || !res.stdout) return "";
     return String(res.stdout).trim().toLowerCase();
+  } catch (e) {
+    return "";
+  }
+}
+
+/**
+ * The permission bits of a file, as three octal digits ("644").
+ *
+ * Only the bits that decide who may read, write and look at the file are
+ * kept. The set user id and the sticky bit are of no use for a subtitle
+ * file, and the file is never made executable.
+ *
+ * An empty string when the file cannot be inspected.
+ */
+async function permissionBitsOf(path) {
+  if (!path) return "";
+  try {
+    const res = await utils.exec("/usr/bin/stat", ["-f", "%Lp", "--", path]);
+    if (res.status !== 0 || !res.stdout) return "";
+    const bits = String(res.stdout).trim();
+    if (!/^[0-7]{3,4}$/.test(bits)) return "";
+    const value = parseInt(bits.slice(-3), 8) & 0o666;
+    return value.toString(8).padStart(3, "0");
   } catch (e) {
     return "";
   }
@@ -345,6 +371,7 @@ module.exports = {
   fnv1a,
   statOf,
   fileTypeOf,
+  permissionBitsOf,
   ensureDir,
   subtitlePathFor,
   internalSubtitlePathFor,
