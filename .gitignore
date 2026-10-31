@@ -1,6 +1,9 @@
 # The build output of scripts/package.sh
 dist/
 
+# The compiled helper of tools/vina.swift
+tools/vina
+
 # macOS
 .DS_Store
 
