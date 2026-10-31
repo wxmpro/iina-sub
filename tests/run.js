@@ -445,7 +445,10 @@ function loadPlugin(mockOptions, stubs) {
   return mock;
 }
 
-const EXISTING_TOOL = "/opt/homebrew/bin/whisper-cli";
+// The tests must not depend on anything that is installed on the machine of
+// the person who runs them, so a file that every system has is used as a
+// stand in for the engine and for the model.
+const EXISTING_TOOL = "/bin/sh";
 
 function basePreferences(extra) {
   return Object.assign(
