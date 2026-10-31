@@ -32,15 +32,16 @@ import Foundation
 
 // vina — Video INto Audio
 //
-// Decodes the audio track of a video file and writes it to standard output as
-// 16 kHz mono signed 16 bit PCM inside a WAV container. That is the only
-// format the speech recognition model accepts.
+// Decodes the audio track of a video file and writes it as 16 kHz mono signed
+// 16 bit PCM inside a WAV container. That is the only format the speech
+// recognition model accepts.
 //
 // It replaces ffmpeg with the media framework that macOS ships with, so the
 // plugin needs no external decoder.
 //
 // Usage: vina <media-file> [start-seconds] [duration-seconds] [audio-track]
 //        vina --duration <media-file>
+//        vina --wav <output-file> <media-file> [start] [duration] [audio-track]
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(("vina: " + message + "\n").data(using: .utf8)!)
@@ -79,10 +80,33 @@ if arguments[1] == "--duration" {
     exit(0)
 }
 
-let mediaURL = URL(fileURLWithPath: arguments[1])
-let startSeconds = arguments.count > 2 ? (Double(arguments[2]) ?? 0) : 0
-let durationSeconds = arguments.count > 3 ? (Double(arguments[3]) ?? 0) : 0
-let trackIndex = arguments.count > 4 ? Int(arguments[4]) ?? 0 : 0
+// The audio goes to standard output unless the caller names a file. The
+// engines that read a file instead of a stream need a file.
+var outputPath: String? = nil
+var mediaArgument = arguments[1]
+var startArgument: String? = nil
+var durationArgument: String? = nil
+var trackArgument: String? = nil
+
+if arguments[1] == "--wav" {
+    guard arguments.count >= 4 else {
+        fail("usage: vina --wav <output-file> <media-file> [start-seconds] [duration-seconds] [audio-track]")
+    }
+    outputPath = arguments[2]
+    mediaArgument = arguments[3]
+    startArgument = arguments.count > 4 ? arguments[4] : nil
+    durationArgument = arguments.count > 5 ? arguments[5] : nil
+    trackArgument = arguments.count > 6 ? arguments[6] : nil
+} else {
+    startArgument = arguments.count > 2 ? arguments[2] : nil
+    durationArgument = arguments.count > 3 ? arguments[3] : nil
+    trackArgument = arguments.count > 4 ? arguments[4] : nil
+}
+
+let mediaURL = URL(fileURLWithPath: mediaArgument)
+let startSeconds = startArgument.flatMap { Double($0) } ?? 0
+let durationSeconds = durationArgument.flatMap { Double($0) } ?? 0
+let trackIndex = trackArgument.flatMap { Int($0) } ?? 0
 
 /// Write a WAV header for a stream whose total length is not known yet.
 /// The size fields are left at 0xFFFFFFFF, which is what streaming writers do
@@ -93,7 +117,7 @@ func wavHeader() -> Data {
     let channels: UInt16 = 1
     let bitsPerSample: UInt16 = 16
     let byteRate = sampleRate * UInt32(channels) * UInt32(bitsPerSample / 8)
-    let blockAlign = channels * (bitsPerSample / 8)
+    let blockAlign = channels * UInt16(bitsPerSample / 8)
 
     func append(_ value: UInt32) { withUnsafeBytes(of: value.littleEndian) { header.append(contentsOf: $0) } }
     func append(_ value: UInt16) { withUnsafeBytes(of: value.littleEndian) { header.append(contentsOf: $0) } }
@@ -115,7 +139,40 @@ func wavHeader() -> Data {
     return header
 }
 
+// The file the audio is written to. It is standard output unless a file was
+// named on the command line.
+let outputHandle: FileHandle
+let closesOutput: Bool
+
+if let path = outputPath {
+    let url = URL(fileURLWithPath: path)
+    // A file that is already there would be appended to, so it is removed
+    // first. The name is the one the plugin chose, so nothing else can be
+    // touched by this.
+    if FileManager.default.fileExists(atPath: path) {
+        try? FileManager.default.removeItem(at: url)
+    }
+    guard FileManager.default.createFile(atPath: path, contents: nil) else {
+        fail("the output file could not be created: " + path)
+    }
+    guard let handle = FileHandle(forWritingAtPath: path) else {
+        fail("the output file could not be opened: " + path)
+    }
+    outputHandle = handle
+    closesOutput = true
+} else {
+    outputHandle = FileHandle.standardOutput
+    closesOutput = false
+}
+
 let done = DispatchSemaphore(value: 0)
+
+// The exit code tells the caller what happened.
+//   0  the audio was written
+//   3  the requested part of the file holds no sound at all
+//   4  the requested part of the file is silent
+var sampleCount: UInt64 = 0
+var peakValue: Int = 0
 
 Task {
     let asset = AVURLAsset(url: mediaURL)
@@ -154,7 +211,7 @@ Task {
 
         reader.add(output)
 
-        FileHandle.standardOutput.write(wavHeader())
+        outputHandle.write(wavHeader())
 
         if reader.startReading() {
             while let sample = output.copyNextSampleBuffer() {
@@ -172,7 +229,19 @@ Task {
                         )
                     }
                 }
-                FileHandle.standardOutput.write(bytes)
+                // The loudest sample of the part is looked at, so that a
+                // part that holds nothing but silence can be told apart
+                // from a part that holds speech.
+                sampleCount += UInt64(bytes.count) / 2
+                bytes.withUnsafeBytes { raw in
+                    let samples = raw.bindMemory(to: Int16.self)
+                    for index in 0..<samples.count {
+                        let value = Int(samples[index])
+                        if value < 0 { peakValue = max(peakValue, -value) } else { peakValue = max(peakValue, value) }
+                    }
+                }
+
+                outputHandle.write(bytes)
             }
 
             if reader.status == .failed {
@@ -183,6 +252,24 @@ Task {
         }
     } catch {
         fail(error.localizedDescription)
+    }
+
+    if closesOutput {
+        try? outputHandle.close()
+    }
+
+    // A part of the file that holds no sound is not an error: the caller
+    // simply has nothing to recognise there. The exit code says so.
+    if sampleCount == 0 {
+        FileHandle.standardError.write("vina: the requested part of the file holds no sound\n".data(using: .utf8)!)
+        exit(3)
+    }
+    // A part that is quieter than this holds nothing but the noise of the
+    // room. The speech model would make something up out of it, so it is
+    // better to say that there is nothing to hear.
+    if peakValue < 32 {
+        FileHandle.standardError.write("vina: the requested part of the file is silent\n".data(using: .utf8)!)
+        exit(4)
     }
 
     done.signal()
@@ -214,8 +301,26 @@ function binaryPath() {
  * The command is either the compiled binary or, when no compiler is
  * available, the Swift interpreter running the source directly. Both produce
  * the same output.
+ *
+ * Only one build runs at a time. Two of them would write to the same place,
+ * and the result of a race would be a helper that is half written.
  */
 async function ensureDecoder() {
+  if (pending) return pending;
+  pending = buildDecoder();
+  try {
+    return await pending;
+  } finally {
+    pending = null;
+  }
+}
+
+/**
+ * The build that is running at the moment, if there is one.
+ */
+let pending = null;
+
+async function buildDecoder() {
   const binary = binaryPath();
   if (binary && utils.fileInPath(binary)) {
     return { command: binary, args: [], compiled: true };
@@ -247,9 +352,22 @@ async function ensureDecoder() {
     if (binDir) {
       await utils.exec("/bin/mkdir", ["-p", binDir]);
     }
-    const res = await utils.exec(swiftc, ["-O", source, "-o", binary]);
-    if (res.status === 0 && binary && utils.fileInPath(binary)) {
-      return { command: binary, args: [], compiled: true };
+    // The helper is built under another name and put into place at the very
+    // end. A build that is cut short would leave a helper that is half
+    // written, and its name carries the fingerprint of the source, so it
+    // would be used for ever.
+    const temporary = binary + ".building";
+    const res = await utils.exec(swiftc, ["-O", source, "-o", temporary]);
+    if (res.status === 0 && temporary && utils.fileInPath(temporary)) {
+      const move = await utils.exec("/bin/mv", ["-f", temporary, binary]);
+      if (move.status === 0 && binary && utils.fileInPath(binary)) {
+        return { command: binary, args: [], compiled: true };
+      }
+    }
+    try {
+      await utils.exec("/bin/rm", ["-f", temporary]);
+    } catch (e) {
+      /* best effort */
     }
     console.warn("iina-sub: could not compile the decoder: " + (res.stderr || ""));
   }
@@ -303,10 +421,51 @@ async function durationOf(mediaPath) {
   }
 }
 
+/**
+ * Write the audio of one part of a media file into a WAV file.
+ *
+ * The file holds the part and nothing else, so the times an engine reports
+ * belong to the part and to nothing else.
+ *
+ * The result says whether the part holds any sound. A part that is silent
+ * is not an error: the speech model would only make something up out of it,
+ * so the caller is told to leave it alone.
+ */
+async function writeWav(outputPath, mediaPath, startSeconds, durationSeconds, trackIndex) {
+  if (!outputPath || !mediaPath) {
+    throw new Error("The decoder needs a file to write and a file to read.");
+  }
+  const helper = await ensureDecoder();
+  const res = await utils.exec(
+    helper.command,
+    helper.args.concat([
+      "--wav",
+      outputPath,
+      mediaPath,
+      String(startSeconds || 0),
+      String(durationSeconds || 0),
+      String(typeof trackIndex === "number" && trackIndex >= 0 ? trackIndex : 0),
+    ])
+  );
+
+  // Exit code 3 means that the part holds no sound at all, exit code 4
+  // that it is quieter than a whisper.
+  if (res.status === 3 || res.status === 4) {
+    return { path: outputPath, silent: true, message: (res.stderr || "").trim() };
+  }
+  if (res.status !== 0) {
+    throw new Error(
+      "The audio could not be decoded: " + (res.stderr || "").trim()
+    );
+  }
+  return { path: outputPath, silent: false, message: "" };
+}
+
 module.exports = {
   ensureDecoder,
   prepareDecoder,
   durationOf,
+  writeWav,
   sourcePath,
   binaryPath,
   SWIFT_SOURCE,

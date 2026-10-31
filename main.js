@@ -32,11 +32,19 @@ const VIDEO_EXTENSIONS = [
 /** The transcription that is currently running, if any. */
 let activeJob = null;
 
+/**
+ * A transcription that is being set up.
+ *
+ * The setup takes a moment, and until it is finished the job does not exist
+ * yet. Without this flag two transcriptions could start at the same time.
+ */
+let starting = false;
+
 /** Path of the subtitle file that is currently loaded into the player. */
 let loadedSubtitlePath = null;
 
-/** Media that was loaded last, used to detect a change of file. */
-let lastMediaPath = null;
+/** The number of that subtitle track, so that it can be reloaded by name. */
+let loadedSubtitleId = null;
 
 /** Queue of files for a batch run. */
 let batchQueue = [];
@@ -45,14 +53,47 @@ let batchRunning = false;
 /** Small log shown in the sidebar. */
 const activityLog = [];
 
+/**
+ * Whether a transcription is running or about to run.
+ */
+function isBusy() {
+  return activeJob !== null || starting;
+}
+
+/**
+ * The audio track a transcription uses, counted among the audio tracks.
+ *
+ * A track that cannot be told apart from the others is the first one, which
+ * is what the decoder falls back to as well.
+ */
+function effectiveTrackIndex(raw) {
+  return typeof raw === "number" && raw >= 0 ? raw : 0;
+}
+
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
+/**
+ * The places where Homebrew puts the whisper binary.
+ *
+ * The binary of an Apple Silicon machine is in the first one, the one of an
+ * Intel machine in the second.
+ */
+const WHISPER_CANDIDATES = [
+  "/opt/homebrew/bin/whisper-cli",
+  "/usr/local/bin/whisper-cli",
+  "/opt/homebrew/bin/whisper-cpp",
+  "/usr/local/bin/whisper-cpp",
+];
+
 function readConfig() {
-  const num = (key, fallback) => {
+  // A number that is out of range is brought back into it, so that a value
+  // that was typed by hand cannot make the plugin do something absurd.
+  const num = (key, fallback, min, max) => {
     const value = Number(preferences.get(key));
-    return isFinite(value) && value > 0 ? value : fallback;
+    if (!isFinite(value)) return fallback;
+    return Math.min(max, Math.max(min, value));
   };
   const bool = (key, fallback) => {
     const value = preferences.get(key);
@@ -60,14 +101,24 @@ function readConfig() {
     return value === true || value === "true" || value === "1";
   };
 
+  const configured = String(preferences.get("whisperPath") || "").trim();
+  let whisperPath = configured;
+  if (!whisperPath) {
+    // Nothing was chosen yet, so the place where the binary usually is
+    // looked at.
+    whisperPath =
+      WHISPER_CANDIDATES.find((candidate) => utils.fileInPath(candidate)) ||
+      WHISPER_CANDIDATES[0];
+  }
+
   return {
     engineId: String(preferences.get("engineId") || "whisper-cpp"),
     enginePath: String(preferences.get("enginePath") || ""),
-    whisperPath: String(preferences.get("whisperPath") || "/opt/homebrew/bin/whisper-cli"),
+    whisperPath: whisperPath,
     modelPath: String(preferences.get("modelPath") || ""),
     language: String(preferences.get("language") || "zh"),
-    chunkSeconds: num("chunkSeconds", 30),
-    tailSeconds: num("tailSeconds", 2),
+    chunkSeconds: num("chunkSeconds", 30, 10, 300),
+    tailSeconds: num("tailSeconds", 2, 0, 15),
     autoLoad: bool("autoLoad", true),
     autoTranscribe: bool("autoTranscribe", true),
   };
@@ -119,60 +170,105 @@ function currentAudioTrackIndex() {
 }
 
 /**
- * Whether the player already holds a subtitle track for one of these files.
+ * Find the subtitle track of the player that holds one of these files.
  *
- * The player picks up a subtitle file that sits next to the video on its
- * own. When the transcript has been exported, that file holds the very same
- * transcript, so a second track would only confuse.
+ * The whole path is compared. The name of the file alone is not enough: two
+ * folders can hold a file with the same name, and the track of the wrong one
+ * would be used. As a second step a file that the player reports under
+ * another name — because the folder is behind a link, for instance — is
+ * recognised when it sits in the same folder as the video.
+ *
+ * Returns { path, id } or null.
  */
-function isSubtitleLoaded(path, alternatives) {
+function findSubtitleTrack(path, alternatives) {
   const wanted = [path].concat(alternatives || []).filter((p) => !!p);
+  if (wanted.length === 0) return null;
+
+  let tracks = [];
   try {
-    const tracks = mpv.getNative("track-list") || [];
-    for (const track of tracks) {
-      if (!track || track.type !== "sub") continue;
-      const file = track["external-filename"];
-      if (!file) continue;
-      for (const candidate of wanted) {
-        if (file === candidate) return true;
-        if (baseName(file) === baseName(candidate)) return true;
-      }
-    }
+    tracks = mpv.getNative("track-list") || [];
   } catch (e) {
     console.warn("iina-sub: could not read the track list: " + e);
+    return null;
   }
-  return false;
+
+  for (const track of tracks) {
+    if (!track || track.type !== "sub") continue;
+    const file = track["external-filename"];
+    if (!file) continue;
+    for (const candidate of wanted) {
+      if (file === candidate) return { path: file, id: track.id };
+    }
+  }
+
+  for (const track of tracks) {
+    if (!track || track.type !== "sub") continue;
+    const file = track["external-filename"];
+    if (!file) continue;
+    for (const candidate of wanted) {
+      if (baseName(file) !== baseName(candidate)) continue;
+      if (directoryOf(file) !== directoryOf(candidate)) continue;
+      return { path: file, id: track.id };
+    }
+  }
+
+  return null;
 }
 
 /**
  * Load a subtitle file as a native IINA subtitle track.
+ *
+ * The player picks up a subtitle file that sits next to the video on its
+ * own. When that file holds the very same transcript, a second track would
+ * only confuse, so it is used instead of adding one.
  */
 function loadSubtitle(path, alternatives) {
-  if (isSubtitleLoaded(path, alternatives)) {
+  const existing = findSubtitleTrack(path, alternatives);
+  if (existing) {
     // The player has it already.
-    loadedSubtitlePath = path;
+    loadedSubtitlePath = existing.path;
+    loadedSubtitleId = existing.id;
     return true;
   }
+
   try {
     mpv.command("sub-add", [path, "select"]);
-    loadedSubtitlePath = path;
-    return true;
   } catch (e) {
     console.error("iina-sub: could not load " + path + ": " + e);
     return false;
   }
+
+  // The player does not report a command that failed, so the track list is
+  // asked whether the file is really there now. When the list has not caught
+  // up yet, the file is remembered anyway and the reload is left to the
+  // plain command.
+  const added = findSubtitleTrack(path);
+  if (added) {
+    loadedSubtitlePath = added.path;
+    loadedSubtitleId = added.id;
+  } else {
+    loadedSubtitlePath = path;
+    loadedSubtitleId = null;
+  }
+  return true;
 }
 
 /**
  * Reload the subtitle track after the file on disk changed.
  *
  * mpv implements `sub-reload` by unloading and re-adding an external subtitle
- * file, so the freshly written cues show up immediately.
+ * file, so the freshly written cues show up immediately. The track is named
+ * by its number, because a reload without one refreshes the track that
+ * happens to be selected, which is not always the one of the plugin.
  */
 function reloadSubtitle() {
   if (!loadedSubtitlePath) return false;
   try {
-    mpv.command("sub-reload", []);
+    if (loadedSubtitleId !== null && loadedSubtitleId !== undefined) {
+      mpv.command("sub-reload", [String(loadedSubtitleId)]);
+    } else {
+      mpv.command("sub-reload", []);
+    }
     return true;
   } catch (e) {
     console.warn("iina-sub: sub-reload failed: " + e);
@@ -185,38 +281,19 @@ function reloadSubtitle() {
 // ---------------------------------------------------------------------------
 
 /**
- * The version of the transcription logic.
- *
- * It is part of the fingerprint, so a change in the way the plugin cuts and
- * merges the audio invalidates the transcripts that were produced by the
- * older logic.
- */
-const TRANSCRIPT_VERSION = "1";
-
-/**
  * Build a fingerprint that covers everything which can invalidate a cached
  * transcript: the media file, the model, the engine binary and the language.
+ *
+ * The decoder is part of it as well: a new way of reading the audio gives a
+ * different result, so an old transcript is not valid any more.
  */
-async function buildFingerprint(mediaPath, config) {
-  const mediaStat = await srt.statOf(mediaPath);
-  const modelStat = await srt.statOf(config.modelPath);
-  const engineStat = await srt.statOf(config.enginePath || config.whisperPath);
-  return srt.fingerprint([
-    TRANSCRIPT_VERSION,
+async function buildFingerprint(mediaPath, config, audioTrackIndex) {
+  return srt.transcriptFingerprint(
     mediaPath,
-    mediaStat ? mediaStat.size : "",
-    mediaStat ? mediaStat.mtime : "",
-    config.modelPath,
-    modelStat ? modelStat.size : "",
-    modelStat ? modelStat.mtime : "",
-    config.engineId,
-    config.enginePath || config.whisperPath,
-    engineStat ? engineStat.size : "",
-    engineStat ? engineStat.mtime : "",
-    config.language,
-    config.chunkSeconds,
-    config.tailSeconds,
-  ]);
+    config,
+    srt.fnv1a(decoder.SWIFT_SOURCE || ""),
+    audioTrackIndex
+  );
 }
 
 /**
@@ -239,7 +316,7 @@ function resolveCachePaths(mediaPath) {
  * Returns the paths of the cached transcript, or null when there is none or
  * when the one that is there was produced with different settings.
  */
-async function findValidCache(mediaPath, config) {
+async function findValidCache(mediaPath, config, audioTrackIndex) {
   const paths = resolveCachePaths(mediaPath);
   if (!paths) return null;
   if (!file.exists(paths.subtitle)) return null;
@@ -253,7 +330,11 @@ async function findValidCache(mediaPath, config) {
   }
   if (!stamp) return null;
 
-  const expected = await buildFingerprint(mediaPath, config);
+  const expected = await buildFingerprint(
+    mediaPath,
+    config,
+    effectiveTrackIndex(audioTrackIndex)
+  );
   if (String(stamp).trim() !== expected) return null;
   return paths;
 }
@@ -262,8 +343,8 @@ async function findValidCache(mediaPath, config) {
  * Load the cached transcript for a media file when one exists and is current.
  * Returns true when a cached subtitle was loaded.
  */
-async function loadCachedSubtitle(mediaPath, config) {
-  const paths = await findValidCache(mediaPath, config);
+async function loadCachedSubtitle(mediaPath, config, audioTrackIndex) {
+  const paths = await findValidCache(mediaPath, config, audioTrackIndex);
   if (!paths) return false;
 
   if (loadSubtitle(paths.subtitle, [srt.subtitlePathFor(mediaPath)])) {
@@ -288,6 +369,13 @@ async function loadCachedSubtitle(mediaPath, config) {
  */
 function validateConfig(config) {
   const engine = engines.getEngine(config.engineId);
+  if (!engine) {
+    throw new Error(
+      'The engine "' +
+        config.engineId +
+        '" is not known. Pick one of the engines in the settings.'
+    );
+  }
   if (engine.requiresModel && !config.modelPath) {
     throw new Error("No model is selected. Pick one in the preferences first.");
   }
@@ -303,6 +391,16 @@ function validateConfig(config) {
     );
   }
   return engine;
+}
+
+/**
+ * Whether a path is absolute.
+ *
+ * A relative path would be looked up in the working folder of the player,
+ * which is nowhere the user expects it to be.
+ */
+function isAbsolute(path) {
+  return typeof path === "string" && path.startsWith("/");
 }
 
 /**
@@ -335,40 +433,82 @@ function pickNextChunk(chunks, done, positionMs) {
  *
  * The transcript lives inside the plugin folder, where the file API of the
  * player is allowed to overwrite a file that is already there.
+ *
+ * Only the transcript is written here. The mark that tells the plugin that
+ * the transcript is complete is written when the whole file was
+ * transcribed, so that a half finished transcript is never taken for a
+ * finished one.
  */
 async function publishCues(job) {
   const paths = job.paths;
   const content = srt.renderSrt(job.cues);
   try {
     file.write(paths.subtitle, content);
-    file.write(paths.stamp, job.fingerprint);
   } catch (e) {
+    // A disk that is full shows up here. The run goes on, but the result
+    // cannot be trusted, so it is not marked as complete.
     console.error("iina-sub: could not write the transcript: " + e);
+    job.writeFailed = true;
+    return;
+  }
+  showTranscript(job);
+}
+
+/**
+ * Put the transcript on the screen.
+ *
+ * The file in the plugin folder is the one that follows the transcription.
+ * When the player shows the exported copy instead — a snapshot that was
+ * written next to the video earlier — the file in the plugin folder is added
+ * and selected, so that the screen shows the current state again.
+ */
+function showTranscript(job) {
+  // The viewer has moved on to another file. The subtitles of this one
+  // belong to a video that is not on the screen any more, so the player is
+  // left alone.
+  if (job.mediaPath !== currentMediaPath()) return;
+
+  const internal = job.paths.subtitle;
+  const exported = srt.subtitlePathFor(job.mediaPath);
+
+  if (loadedSubtitlePath === internal) {
+    reloadSubtitle();
     return;
   }
 
-  if (loadedSubtitlePath === paths.subtitle) {
-    reloadSubtitle();
-  } else {
-    loadSubtitle(paths.subtitle, [srt.subtitlePathFor(job.mediaPath)]);
+  if (loadedSubtitlePath && exported && loadedSubtitlePath === exported) {
+    // The copy next to the video is a snapshot of an earlier run.
+    loadSubtitle(internal);
+    return;
   }
+
+  loadSubtitle(internal, exported ? [exported] : []);
+}
+
+/**
+ * A text that is safe to hand over to the sidebar.
+ *
+ * The sidebar is a web page, and the player builds the call that reaches it
+ * out of the text itself. A backtick in the name of a file would end the
+ * text and the sidebar would stop listening.
+ */
+function safeText(value) {
+  return String(value === undefined || value === null ? "" : value).replace(/[`\\]/g, "'");
 }
 
 /**
  * Report progress to the player and the sidebar.
  */
 function pushStatus(state) {
-  const payload = Object.assign(
-    {
-      phase: "idle",
-      message: "",
-      detail: "",
-      percent: 0,
-      video: "",
-      elapsed: 0,
-    },
-    state || {}
-  );
+  const given = state || {};
+  const payload = {
+    phase: String(given.phase || "idle"),
+    message: safeText(given.message),
+    detail: safeText(given.detail),
+    percent: Number(given.percent) || 0,
+    video: safeText(given.video),
+    elapsed: Number(given.elapsed) || 0,
+  };
   try {
     sidebar.postMessage("status", payload);
   } catch (e) {
@@ -390,6 +530,8 @@ async function runJob(job) {
 
   const done = new Set();
   const startedAt = Date.now();
+  const failures = [];
+  let attempted = 0;
 
   try {
     while (done.size < chunks.length) {
@@ -398,25 +540,47 @@ async function runJob(job) {
       const chunk = pickNextChunk(chunks, done, job.positionMs());
       if (!chunk) break;
       done.add(chunk.index);
+      attempted++;
 
       const base = ((done.size - 1) / chunks.length) * 100;
       const span = 100 / chunks.length;
 
-      const cues = await worker.transcribeChunk(
-        job.context,
-        engine,
-        chunk,
-        (percent) => {
-          pushStatus({
-            phase: "transcribing",
-            message: "Transcribing",
-            detail: "Chunk " + (chunk.index + 1) + " / " + chunks.length,
-            percent: base + span * (percent / 100),
-            video: job.mediaPath,
-            elapsed: (Date.now() - startedAt) / 1000,
-          });
-        }
-      );
+      let cues = null;
+      try {
+        cues = await worker.transcribeChunk(
+          job.context,
+          engine,
+          chunk,
+          (percent) => {
+            pushStatus({
+              phase: "transcribing",
+              message: "Transcribing",
+              detail: "Chunk " + (chunk.index + 1) + " / " + chunks.length,
+              percent: base + span * (percent / 100),
+              video: job.mediaPath,
+              elapsed: (Date.now() - startedAt) / 1000,
+            });
+          }
+        );
+      } catch (e) {
+        const message = e && e.message ? e.message : String(e);
+        // A chunk that fails costs that chunk and not the whole run. The
+        // very first one is the exception: when it fails, the problem is
+        // the setup and not the file, and running the rest would only
+        // produce the same error over and over.
+        if (attempted === 1) throw new Error(message);
+        failures.push(message);
+        console.warn("iina-sub: chunk " + chunk.index + " failed: " + message);
+        pushStatus({
+          phase: "transcribing",
+          message: "Transcribing",
+          detail: "Chunk " + done.size + " / " + chunks.length + " failed",
+          percent: (done.size / chunks.length) * 100,
+          video: job.mediaPath,
+          elapsed: (Date.now() - startedAt) / 1000,
+        });
+        continue;
+      }
 
       if (job.cancelled) break;
 
@@ -445,15 +609,48 @@ async function runJob(job) {
       return false;
     }
 
+    if (job.writeFailed) {
+      const message = "The transcript could not be written. The disk may be full.";
+      console.error("iina-sub: " + message);
+      pushStatus({
+        phase: "error",
+        message: "Failed",
+        detail: message,
+        video: job.mediaPath,
+        elapsed: (Date.now() - startedAt) / 1000,
+      });
+      core.osd("iina-sub: " + message);
+      logActivity("Failed: " + baseName(job.mediaPath) + " — " + message);
+      return false;
+    }
+
+    // The mark that says the transcript is complete is written only now. A
+    // transcript that is missing a part is not a valid cache, so the file
+    // is transcribed again the next time it is opened.
+    if (failures.length === 0) {
+      try {
+        file.write(job.paths.stamp, job.fingerprint);
+      } catch (e) {
+        console.error("iina-sub: could not write the mark of the transcript: " + e);
+      }
+    }
+
     pushStatus({
-      phase: "done",
-      message: "Done",
-      detail: job.paths.subtitle,
+      phase: failures.length === 0 ? "done" : "partial",
+      message: failures.length === 0 ? "Done" : "Done with gaps",
+      detail:
+        failures.length === 0
+          ? job.paths.subtitle
+          : failures.length + " of " + chunks.length + " chunks failed",
       percent: 100,
       video: job.mediaPath,
       elapsed: (Date.now() - startedAt) / 1000,
     });
-    core.osd("iina-sub: subtitles ready");
+    core.osd(
+      failures.length === 0
+        ? "iina-sub: subtitles ready"
+        : "iina-sub: subtitles ready, but " + failures.length + " chunks failed"
+    );
     logActivity("Transcribed " + baseName(job.mediaPath));
     return true;
   } catch (e) {
@@ -462,12 +659,12 @@ async function runJob(job) {
     pushStatus({
       phase: "error",
       message: "Failed",
-      detail: message,
+      detail: shortMessage(message),
       video: job.mediaPath,
       elapsed: (Date.now() - startedAt) / 1000,
     });
-    core.osd("iina-sub: " + message);
-    logActivity("Failed: " + baseName(job.mediaPath) + " — " + message);
+    core.osd("iina-sub: " + shortMessage(message));
+    logActivity("Failed: " + baseName(job.mediaPath) + " — " + shortMessage(message));
     return false;
   } finally {
     if (activeJob === job) activeJob = null;
@@ -475,14 +672,88 @@ async function runJob(job) {
 }
 
 /**
+ * Build the job that transcribes one media file.
+ *
+ * The same shape is used for a single file and for a batch, so that the two
+ * cannot drift apart.
+ */
+async function createJob(mediaPath, durationMs, config, engine, options) {
+  const opts = options || {};
+  const paths = resolveCachePaths(mediaPath);
+  if (!paths) return null;
+
+  // A file that is not playing has no track of its own, so the first audio
+  // track of the file is used.
+  const audioTrackIndex =
+    opts.audioTrackIndex === undefined ? currentAudioTrackIndex() : opts.audioTrackIndex;
+
+  // The decoder is built before the job starts, so that a machine without a
+  // compiler says so right away and not in the middle of the first chunk.
+  const helper = await decoder.ensureDecoder();
+
+  return {
+    mediaPath: mediaPath,
+    durationMs: durationMs,
+    config: config,
+    engine: engine,
+    paths: paths,
+    cues: [],
+    cancelled: false,
+    writeFailed: false,
+    fingerprint: await buildFingerprint(
+      mediaPath,
+      config,
+      effectiveTrackIndex(audioTrackIndex)
+    ),
+    context: {
+      config: config,
+      mediaPath: mediaPath,
+      audioTrackIndex: audioTrackIndex,
+      decoder: helper,
+    },
+    positionMs:
+      opts.positionMs ||
+      function () {
+        return 0;
+      },
+  };
+}
+
+/**
  * Start a transcription for a media file.
  */
 async function startTranscription(mediaPath, durationMs, silent) {
-  if (activeJob) {
+  if (isBusy()) {
     core.osd("iina-sub: a transcription is already running");
     return;
   }
 
+  // The flag is set before the first await, so that a second request cannot
+  // slip in while this one is still being set up.
+  starting = true;
+  try {
+    await startTranscriptionNow(mediaPath, durationMs, silent);
+  } catch (e) {
+    const message = e && e.message ? e.message : String(e);
+    console.error("iina-sub: " + message);
+    core.osd("iina-sub: " + shortMessage(message));
+    pushStatus({ phase: "error", message: "Failed", detail: shortMessage(message) });
+    if (!silent) utils.ask("iina-sub\n\n" + message);
+  } finally {
+    starting = false;
+  }
+}
+
+/**
+ * A short form of a message, so that the screen of the player is not filled
+ * with the help of a program that complained.
+ */
+function shortMessage(text) {
+  const message = String(text || "").split("\n")[0].trim();
+  return message.length > 200 ? message.slice(0, 200) + "…" : message;
+}
+
+async function startTranscriptionNow(mediaPath, durationMs, silent) {
   const config = readConfig();
   let engine;
   try {
@@ -520,26 +791,21 @@ async function startTranscription(mediaPath, durationMs, silent) {
   await srt.ensureDir(utils.resolvePath("@data/fingerprints"));
   await srt.ensureDir(worker.chunkDirectory());
 
-  const job = {
-    mediaPath,
-    durationMs: durationMs,
-    config,
-    engine,
-    paths,
-    cues: [],
-    cancelled: false,
-    fingerprint: await buildFingerprint(mediaPath, config),
-    context: {
-      config,
-      mediaPath,
-      audioTrackIndex: currentAudioTrackIndex(),
-      decoder: await decoder.ensureDecoder(),
-    },
+  const job = await createJob(mediaPath, durationMs, config, engine, {
     positionMs: function () {
       if (mediaPath !== currentMediaPath()) return 0;
       return currentDurationMs() ? Number(mpv.getNumber("time-pos") || 0) * 1000 : 0;
     },
-  };
+  });
+  if (!job) return;
+
+  // A mark that is left over from an earlier run would say that a
+  // transcript which is only half written is complete.
+  try {
+    if (file.exists(job.paths.stamp)) file.delete(job.paths.stamp);
+  } catch (e) {
+    /* ignore */
+  }
 
   activeJob = job;
   core.osd("iina-sub: starting transcription");
@@ -571,7 +837,7 @@ function directoryOf(path) {
 }
 
 function logActivity(text) {
-  activityLog.unshift({ time: new Date().toLocaleTimeString(), text });
+  activityLog.unshift({ time: new Date().toLocaleTimeString(), text: safeText(text) });
   while (activityLog.length > 50) activityLog.pop();
   try {
     sidebar.postMessage("activity", { entries: activityLog });
@@ -587,7 +853,7 @@ async function commandGenerate() {
     return;
   }
   const config = readConfig();
-  if (await loadCachedSubtitle(mediaPath, config)) return;
+  if (await loadCachedSubtitle(mediaPath, config, currentAudioTrackIndex())) return;
   await startTranscription(mediaPath, currentDurationMs());
 }
 
@@ -610,8 +876,14 @@ async function commandRegenerate() {
 }
 
 function commandCancel() {
+  // A batch run is stopped as well, otherwise it would carry on with the
+  // next file after the one that is running.
+  if (batchRunning) {
+    batchRunning = false;
+    core.osd("iina-sub: batch stopped after the current file");
+  }
   if (!activeJob) {
-    core.osd("iina-sub: nothing is running");
+    if (!batchRunning) core.osd("iina-sub: nothing is running");
     return;
   }
   activeJob.cancelled = true;
@@ -648,6 +920,10 @@ async function commandBatch() {
     core.osd("iina-sub: a batch run is already in progress");
     return;
   }
+  if (isBusy()) {
+    core.osd("iina-sub: a transcription is already running");
+    return;
+  }
   const mediaPath = currentMediaPath();
   if (!mediaPath) {
     utils.ask("iina-sub\n\nOpen a local video first, then every video next to it can be transcribed in one go.");
@@ -681,8 +957,32 @@ async function commandBatch() {
   batchQueue = files.slice();
   core.osd("iina-sub: batch started (" + files.length + " files)");
 
-  for (const path of batchQueue) {
+  try {
+    await runBatch(files, config, engine);
+  } catch (e) {
+    const message = e && e.message ? e.message : String(e);
+    console.error("iina-sub: " + message);
+    core.osd("iina-sub: " + shortMessage(message));
+    logActivity("Batch stopped: " + shortMessage(message));
+  } finally {
+    batchRunning = false;
+    batchQueue = [];
+    activeJob = null;
+  }
+
+  core.osd("iina-sub: batch finished");
+  pushStatus({ phase: "idle", message: "Batch finished", percent: 100 });
+}
+
+/**
+ * Transcribe every file of the folder, one after the other.
+ */
+async function runBatch(files, config, engine) {
+  for (const path of files) {
     if (!batchRunning) break;
+
+    // The files of an earlier run are not needed any more.
+    await worker.clearChunkDirectory();
 
     const duration = await worker.durationOf(path, 0);
     if (!duration) {
@@ -699,39 +999,31 @@ async function commandBatch() {
       } catch (e) {
         stamp = null;
       }
-      if (stamp && String(stamp).trim() === (await buildFingerprint(path, config))) {
+      if (
+        stamp &&
+        String(stamp).trim() === (await buildFingerprint(path, config, 0))
+      ) {
         logActivity("Cached " + baseName(path));
         continue;
       }
     }
 
-    const job = {
-      mediaPath: path,
-      durationMs: duration,
-      config,
-      engine,
-      paths,
-      cues: [],
-      cancelled: false,
-      fingerprint: await buildFingerprint(path, config),
-      context: {
-        config,
-        mediaPath: path,
-        audioTrackIndex: null,
-        decoder: await decoder.ensureDecoder(),
-      },
-      positionMs: function () {
-        return 0;
-      },
-    };
+    const job = await createJob(path, duration, config, engine, {
+      // The file is not the one that is playing, so it has no track of its
+      // own and the first audio track of the file is used.
+      audioTrackIndex: null,
+    });
+    if (!job) continue;
+
+    try {
+      if (file.exists(job.paths.stamp)) file.delete(job.paths.stamp);
+    } catch (e) {
+      /* ignore */
+    }
+
     activeJob = job;
     await runJob(job);
   }
-
-  batchRunning = false;
-  batchQueue = [];
-  core.osd("iina-sub: batch finished");
-  pushStatus({ phase: "idle", message: "Batch finished", percent: 100 });
 }
 
 /**
@@ -757,6 +1049,16 @@ async function commandExport() {
     return;
   }
 
+  // A transcript that is still being written is not the one the user wants
+  // to keep.
+  if (activeJob && activeJob.mediaPath === mediaPath) {
+    utils.ask(
+      "iina-sub\n\nThis video is still being transcribed.\n\n" +
+        "Wait until it is done, then export the subtitles."
+    );
+    return;
+  }
+
   const target = srt.subtitlePathFor(mediaPath);
   if (!target) {
     utils.ask(
@@ -765,20 +1067,88 @@ async function commandExport() {
     return;
   }
 
+  // A folder cannot be written over. The copy would end up inside it, which
+  // is never what the user meant.
+  const kind = await srt.fileTypeOf(target);
+  if (kind === "directory") {
+    utils.ask(
+      "iina-sub\n\nThere is a folder named " +
+        baseName(target) +
+        " in the way.\n\nRemove it and try again."
+    );
+    return;
+  }
+
   // The file API of the player refuses to overwrite a file outside of the
   // plugin folder, so the copy is made by the system itself. The two paths
   // are handed over as separate values, never as text that a shell reads.
   try {
-    const res = await utils.exec("/bin/cp", ["-f", paths.subtitle, target]);
+    // The copy is written under a name that nobody else can guess, so that
+    // it cannot be a link to somewhere else. Only at the very end the file
+    // is put into place, and that step is a rename, which replaces a link
+    // instead of writing through it. A file that is already there is
+    // therefore never touched before the new one is ready.
+    const temporary = await makeTemporaryFile(directoryOf(target));
+    if (!temporary) {
+      throw new Error("The folder of the video could not be written to.");
+    }
+
+    let res = await utils.exec("/bin/cp", [paths.subtitle, temporary]);
     if (res.status !== 0) {
+      await removeQuietly(temporary);
       throw new Error((res.stderr || "").trim() || "exit " + res.status);
     }
+
+    // The temporary file is private to its owner, but a subtitle file next
+    // to a video should be readable like any other file.
+    try {
+      await utils.exec("/bin/chmod", ["0644", temporary]);
+    } catch (e) {
+      /* the file is there, only its permissions are not what was asked for */
+    }
+
+    res = await utils.exec("/bin/mv", ["-f", temporary, target]);
+    if (res.status !== 0) {
+      await removeQuietly(temporary);
+      throw new Error((res.stderr || "").trim() || "exit " + res.status);
+    }
+
     core.osd("iina-sub: saved " + baseName(target));
     logActivity("Exported " + baseName(target));
   } catch (e) {
     const message = e && e.message ? e.message : String(e);
     console.error("iina-sub: could not write " + target + ": " + message);
     utils.ask("iina-sub\n\nThe subtitle file could not be written.\n\n" + message);
+  }
+}
+
+/**
+ * Create a file with a name that nobody else can guess in a folder.
+ *
+ * The file is created empty and with the permissions of its owner only, so
+ * that nothing can be written through it while the copy is being made.
+ */
+async function makeTemporaryFile(directory) {
+  try {
+    const res = await utils.exec("/usr/bin/mktemp", [directory + "/.iina-sub.XXXXXX"]);
+    if (res.status !== 0) return null;
+    const path = String(res.stdout || "").trim();
+    return path || null;
+  } catch (e) {
+    console.warn("iina-sub: could not create a temporary file: " + e);
+    return null;
+  }
+}
+
+/**
+ * Remove a file that is not needed any more.
+ */
+async function removeQuietly(path) {
+  if (!path) return;
+  try {
+    await utils.exec("/bin/rm", ["-f", path]);
+  } catch (e) {
+    /* best effort */
   }
 }
 
@@ -832,29 +1202,31 @@ function buildMenu() {
   // The player only shows the first five entries of a plugin menu and puts
   // the rest behind a "More…" item, so the entries that are used most often
   // come first.
+  // The actions hand their promise back, so that the player can wait for
+  // them and a test can await them.
   menu.addItem(
     menu.item("Generate Subtitles Now", () => {
-      commandGenerate();
+      return commandGenerate();
     }, { keyBinding: "Alt+s" })
   );
   menu.addItem(
     menu.item("Export Subtitles Next to the Video", () => {
-      commandExport();
+      return commandExport();
     }, { keyBinding: "Alt+e" })
   );
   menu.addItem(
     menu.item("Transcribe All Videos in This Folder", () => {
-      commandBatch();
+      return commandBatch();
     })
   );
   menu.addItem(
     menu.item("Regenerate Subtitles (discard the cache)", () => {
-      commandRegenerate();
+      return commandRegenerate();
     })
   );
   menu.addItem(
     menu.item("Cancel Transcription (stop the current run)", () => {
-      commandCancel();
+      return commandCancel();
     }, { keyBinding: "Alt+Shift+s" })
   );
 }
@@ -884,8 +1256,14 @@ event.on("iina.window-loaded", () => {
 
 event.on("iina.file-loaded", () => {
   const mediaPath = currentMediaPath();
-  lastMediaPath = mediaPath;
   loadedSubtitlePath = null;
+  loadedSubtitleId = null;
+
+  // A transcription that belongs to another file is stopped. Its subtitles
+  // would be shown on a video they do not belong to.
+  if (activeJob && activeJob.mediaPath !== mediaPath) {
+    activeJob.cancelled = true;
+  }
 
   if (!mediaPath) {
     pushStatus({ phase: "idle", message: "Ready", percent: 0 });
@@ -907,7 +1285,8 @@ event.on("iina.file-loaded", () => {
  * the user having to ask for them.
  */
 async function handleFileLoaded(mediaPath, config) {
-  const cached = await findValidCache(mediaPath, config);
+  const audioTrackIndex = currentAudioTrackIndex();
+  const cached = await findValidCache(mediaPath, config, audioTrackIndex);
 
   if (cached && config.autoLoad) {
     loadSubtitle(cached.subtitle, [srt.subtitlePathFor(mediaPath)]);
@@ -934,7 +1313,7 @@ async function handleFileLoaded(mediaPath, config) {
   // appear as soon as the first chunk is done.
   if (!config.autoTranscribe) return;
   if (batchRunning) return;
-  if (activeJob) return;
+  if (isBusy()) return;
 
   const duration = await worker.durationOf(mediaPath, currentDurationMs());
   if (!duration) return;
@@ -943,6 +1322,7 @@ async function handleFileLoaded(mediaPath, config) {
 
 event.on("mpv.end-file", () => {
   loadedSubtitlePath = null;
+  loadedSubtitleId = null;
 });
 
 // ---------------------------------------------------------------------------

@@ -22,10 +22,34 @@ jobs:
           set -euo pipefail
           archive="dist/io.github.xinmin.iina-sub.iinaplgz"
           for file in Info.json main.js srt.js worker.js engines.js decoder.js \
-                      models.js pref.html sidebar.html README.md LICENSE; do
-            if ! unzip -l "$archive" | grep -q " $file$"; then
+                      models.js pref.html sidebar.html README.md README.zh-CN.md LICENSE; do
+            if ! unzip -Z1 "$archive" | grep -qx "$file"; then
               echo "::error::$file is missing from the package"
               exit 1
             fi
           done
           echo "the package holds every file"
+
+      - name: Check that the helper in the plugin and the one in the repository are the same
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re, sys
+          source = open("tools/vina.swift", encoding="utf-8").read()
+          plugin = open("decoder.js", encoding="utf-8").read()
+          match = re.search(r"const SWIFT_SOURCE = String\.raw`(.*?)`;", plugin, re.S)
+          if not match:
+              print("::error::the source of the helper is not in decoder.js")
+              sys.exit(1)
+          if match.group(1) != source:
+              print("::error::tools/vina.swift and decoder.js hold different helpers")
+              sys.exit(1)
+          print("the two helpers are the same")
+          PY
+
+      - name: Check that the helper still compiles
+        run: |
+          set -euo pipefail
+          swiftc -O tools/vina.swift -o /tmp/vina-ci
+          /tmp/vina-ci --duration /dev/null || true
+          echo "the helper compiles"

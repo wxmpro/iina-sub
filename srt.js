@@ -94,15 +94,51 @@ function renderSrt(cues) {
 }
 
 /**
- * Merge cue lists, dropping duplicates and resolving overlaps.
+ * The text of a cue without the marks that carry no meaning.
+ *
+ * Two recognitions of the same words differ in their punctuation and their
+ * spaces, and that is all.
+ */
+function plainText(text) {
+  return String(text || "")
+    .replace(/[\s\u3000]+/g, "")
+    .replace(/[，。！？；：、,.!?;:~"'""''（）()《》【】\[\]…—\-]/g, "");
+}
+
+/**
+ * Merge cue lists, dropping the repetitions that the overlap at the end of a
+ * chunk brings along.
+ *
  * `offset` shifts every cue of `cues` by the given amount of milliseconds.
+ *
+ * The last part of a chunk is heard twice: once by the chunk itself and once
+ * by the chunk that follows it. The second time the words are the same, and
+ * they would show up twice on the screen. A cue whose words are the tail of
+ * the words of the cue before it is therefore left out.
  */
 function mergeCues(target, incoming, offset) {
   for (const cue of incoming) {
+    const text = String(cue.text || "");
+    const plain = plainText(text);
+    const previous = target.length > 0 ? target[target.length - 1] : null;
+    if (previous && plain) {
+      const before = plainText(previous.text);
+      const repeated =
+        plain === before ||
+        (plain.length >= 2 &&
+          before.length >= plain.length &&
+          before.endsWith(plain)) ||
+        (before.length >= 2 &&
+          plain.length >= before.length &&
+          plain.endsWith(before));
+      if (repeated && cue.start + offset - previous.start < 3000) {
+        continue;
+      }
+    }
     target.push({
       start: cue.start + offset,
       end: cue.end + offset,
-      text: cue.text,
+      text: text,
     });
   }
   target.sort((a, b) => a.start - b.start || a.end - b.end);
@@ -127,18 +163,29 @@ function fnv1a(text) {
 }
 
 /**
+ * The version of the transcription logic.
+ *
+ * It is part of the fingerprint, so a change in the way the plugin cuts and
+ * merges the audio invalidates the transcripts that were produced by the
+ * older logic.
+ */
+const TRANSCRIPT_VERSION = "1";
+
+/**
  * Compute a stable fingerprint for a media file + model + language.
  *
  * The fingerprint invalidates the cache when any of these change:
- *  - the media file itself (size or modification time)
+ *  - the media file itself (size, modification time and number)
  *  - the model file (size or modification time)
  *  - the transcription language
  *  - the whisper binary (size or modification time)
  */
 function fingerprint(parts) {
+  // The parts are joined with a mark that cannot appear in a path, so that
+  // two different sets of parts can never lead to the same fingerprint.
   const joined = parts
     .map((p) => (p === undefined || p === null ? "" : String(p)))
-    .join(" ");
+    .join("\u0000");
   return fnv1a(joined);
 }
 
@@ -149,13 +196,34 @@ function fingerprint(parts) {
 async function statOf(path) {
   if (!path || !file.exists(path)) return null;
   try {
-    const res = await utils.exec("/usr/bin/stat", ["-f", "%z|%m", path]);
+    // The number of the file is read as well. A file that is replaced by
+    // another one of the same size and the same time of change gets another
+    // number, so the cache of the old file is not taken for the new one.
+    const res = await utils.exec("/usr/bin/stat", ["-f", "%z|%m|%i", path]);
     if (res.status !== 0 || !res.stdout) return null;
-    const [size, mtime] = res.stdout.trim().split("|");
-    return { size: Number(size), mtime: Number(mtime) };
+    const [size, mtime, inode] = res.stdout.trim().split("|");
+    return { size: Number(size), mtime: Number(mtime), inode: String(inode || "") };
   } catch (e) {
     console.warn("iina-sub: stat failed for " + path + ": " + e);
     return null;
+  }
+}
+
+/**
+ * The kind of a file: "regular file", "directory", "symbolic link", or an
+ * empty string when the file cannot be inspected.
+ *
+ * A link is reported as a link and not as the thing it points at, so a link
+ * that pretends to be a folder is recognised as a link.
+ */
+async function fileTypeOf(path) {
+  if (!path) return "";
+  try {
+    const res = await utils.exec("/usr/bin/stat", ["-f", "%HT", path]);
+    if (res.status !== 0 || !res.stdout) return "";
+    return String(res.stdout).trim().toLowerCase();
+  } catch (e) {
+    return "";
   }
 }
 
@@ -174,6 +242,43 @@ async function ensureDir(path) {
     console.warn("iina-sub: could not create the folder " + path + ": " + e);
     return false;
   }
+}
+
+/**
+ * The fingerprint of the transcript of a media file.
+ *
+ * It covers everything that can change the result: the file, the model, the
+ * engine, the language, the way the file is cut into chunks, the decoder and
+ * the audio track that is used. When any of them changes, the transcript that
+ * is on disk is not the one the settings ask for any more.
+ */
+async function transcriptFingerprint(mediaPath, config, decoderHash, audioTrackIndex) {
+  const [mediaStat, modelStat, engineStat] = await Promise.all([
+    statOf(mediaPath),
+    statOf(config.modelPath),
+    statOf(config.enginePath || config.whisperPath),
+  ]);
+  return fingerprint([
+    TRANSCRIPT_VERSION,
+    decoderHash || "",
+    mediaPath,
+    mediaStat ? mediaStat.size : "",
+    mediaStat ? mediaStat.mtime : "",
+    mediaStat ? mediaStat.inode : "",
+    config.modelPath,
+    modelStat ? modelStat.size : "",
+    modelStat ? modelStat.mtime : "",
+    config.engineId,
+    config.enginePath || config.whisperPath,
+    engineStat ? engineStat.size : "",
+    engineStat ? engineStat.mtime : "",
+    config.language,
+    config.chunkSeconds,
+    config.tailSeconds,
+    typeof audioTrackIndex === "number" && audioTrackIndex >= 0
+      ? String(audioTrackIndex)
+      : "0",
+  ]);
 }
 
 /**
@@ -221,14 +326,18 @@ function stampPathFor(mediaPath) {
 }
 
 module.exports = {
+  TRANSCRIPT_VERSION,
+  transcriptFingerprint,
   parseTimestamp,
   formatTimestamp,
   parseSrt,
   renderSrt,
   mergeCues,
+  plainText,
   fingerprint,
   fnv1a,
   statOf,
+  fileTypeOf,
   ensureDir,
   subtitlePathFor,
   internalSubtitlePathFor,

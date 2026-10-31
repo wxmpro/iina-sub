@@ -28,19 +28,35 @@ folder around them.
 | `models.js` | The catalogue of models and the download |
 | `pref.html` | The settings page |
 | `sidebar.html` | The tab of the sidebar |
+| `tools/vina.swift` | The helper that reads the audio, in a form that can be read |
 
-## Two rules that are easy to break
+The helper exists twice: `tools/vina.swift` is the copy that is read, and
+`decoder.js` carries the same source so that the plugin stays a plain set of
+scripts. The two have to be identical. The build checks that, and a change to
+one of them without the other is the one mistake that is easiest to make.
+
+## Four rules that are easy to break
 
 **A module may only be loaded while the file that asks for it is being
 read.** The player resolves a module path relative to the script that is
 being evaluated at that moment. Outside of an evaluation there is no such
 script, and asking for a module then ends the player. So `require()` belongs
-at the top of a file and nowhere else. There is a test that checks this.
+at the top of a file and nowhere else.
 
-**A file name must never reach a shell command.** Values are passed to the
-shell as separate arguments, and every path inside the plugin folder is
-derived from a hash of the media path, so a file name cannot influence where
-a file is written.
+**A file name must never reach a shell command.** The built in engines hand
+their arguments over as they are, one value per argument, and no shell is
+started at all. The custom engine is the one exception, and there the values
+travel as positional parameters.
+
+**The times an engine reports belong to its chunk.** The worker moves them
+into the timeline of the whole file and drops the ones that belong to the
+overlap at the end of the chunk. An engine that reports the times of the
+whole file puts every subtitle in the wrong place.
+
+**A transcript is only marked as complete when it is.** The mark that tells
+the plugin that a transcript may be used is written at the end of a run, not
+after every chunk. A transcript that was stopped half way, or that lost a
+chunk, is transcribed again the next time the file is opened.
 
 ## Adding an engine
 
@@ -54,15 +70,18 @@ An engine turns one chunk of audio into cues. The contract is small:
   requiresModel: true,
   available(config) { /* ... */ },
   async run(context, chunk, onProgress) {
-    // context is { config, mediaPath, audioTrackIndex, decoder }
+    // context is { config, mediaPath, audioTrackIndex }
     // chunk is { index, startMs, lengthMs, durationMs, outBase }
+    // the times of the cues are relative to the start of the chunk
     return [{ start: 0, end: 1000, text: "…" }];
   },
 }
 ```
 
 Register it in `ENGINES` at the bottom of `engines.js` and it shows up in the
-settings page.
+settings page. An engine that reads a file gets the audio of the chunk from
+`decoder.writeWav()`, which also says whether the chunk holds any sound at
+all — a silent chunk is better left alone.
 
 ## Checking a change
 
@@ -72,11 +91,18 @@ it, so please check a change in the places it can go wrong:
 - a video that has no transcript yet is transcribed when it is opened, and the
   subtitles appear while it is still being transcribed;
 - a video that has a transcript is loaded from the cache straight away;
+- a run that is stopped half way is not taken for a finished one the next
+  time the file is opened;
+- opening another video while a run is going on does not put the subtitles of
+  the first one on the screen of the second one;
 - the export writes a file next to the video and leaves nothing else behind;
 - the folder of the video is untouched until the export is asked for;
+- an export over a file that is already there replaces it, and leaves the
+  file it replaces alone;
 - a file name with a quote, a semicolon or a space in it is handled;
 - a file that the search index of the system does not know is transcribed just
-  as well as one in your downloads folder.
+  as well as one in your downloads folder;
+- the engine can be changed in the settings, and the setting is remembered.
 
 ## Reporting a problem
 

@@ -27,9 +27,14 @@ const decoder = require("./decoder.js");
  *
  * The name carries no extension: every engine appends its own suffix, the
  * whisper.cpp engine for instance writes `<base>.srt`.
+ *
+ * The name of the media is not part of it. A hash of the path is used
+ * instead, so two jobs can never write over each other and no file name of
+ * the user can influence where a file is written.
  */
-function chunkOutputBase(chunk) {
-  return utils.resolvePath("@data/chunks/chunk-" + chunk.index);
+function chunkOutputBase(mediaPath, chunk) {
+  const key = srt.fnv1a(mediaPath || "");
+  return utils.resolvePath("@data/chunks/" + key + "-" + chunk.index);
 }
 
 /**
@@ -40,6 +45,31 @@ function chunkDirectory() {
 }
 
 /**
+ * Remove the files that earlier runs left in the chunk folder.
+ *
+ * Only the plugin's own folder is touched. The files are named after a hash,
+ * so nothing of the user is ever in the way.
+ */
+async function clearChunkDirectory() {
+  const dir = chunkDirectory();
+  if (!dir) return;
+  let entries = [];
+  try {
+    entries = file.list(dir, {}) || [];
+  } catch (e) {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry || entry.isDir) continue;
+    try {
+      file.delete(dir + "/" + entry.filename);
+    } catch (e) {
+      /* best effort */
+    }
+  }
+}
+
+/**
  * Transcribe a single chunk and return its cues, already shifted into the
  * timeline of the whole media file.
  *
@@ -47,7 +77,7 @@ function chunkDirectory() {
  *   { config, mediaPath, audioStreamIndex }
  */
 async function transcribeChunk(context, engine, chunk, onProgress) {
-  const outBase = chunkOutputBase(chunk);
+  const outBase = chunkOutputBase(context.mediaPath, chunk);
   chunk.outBase = outBase;
 
   // The engine writes its output with a plain file call, so the directory has
@@ -59,6 +89,7 @@ async function transcribeChunk(context, engine, chunk, onProgress) {
   // The engine may have left a file behind. It is of no use to anyone.
   try {
     if (file.exists(outBase + ".srt")) file.delete(outBase + ".srt");
+    if (file.exists(outBase + ".wav")) file.delete(outBase + ".wav");
   } catch (e) {
     /* best effort */
   }
@@ -151,6 +182,7 @@ async function durationOf(mediaPath, knownMs) {
 module.exports = {
   chunkOutputBase,
   chunkDirectory,
+  clearChunkDirectory,
   transcribeChunk,
   planChunks,
   probeDuration,

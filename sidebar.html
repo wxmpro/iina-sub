@@ -142,9 +142,23 @@
       return m > 0 ? m + "m " + s + "s" : s + "s";
     }
 
+    // The name of the phase is turned into something that can be read.
+    const PHASES = {
+      idle: "Ready",
+      starting: "Starting",
+      transcribing: "Transcribing",
+      cached: "Loaded from the cache",
+      done: "Done",
+      partial: "Done with gaps",
+      cancelled: "Cancelled",
+      error: "Failed",
+      download: "Downloading",
+    };
+
     function onStatus(payload) {
       if (!payload) return;
-      phaseEl.textContent = payload.phase || "idle";
+      const phase = payload.phase || "idle";
+      phaseEl.textContent = PHASES[phase] || phase;
       messageEl.textContent = payload.message || "";
       detailEl.textContent = payload.detail || "";
       const percent = Math.max(0, Math.min(100, Number(payload.percent) || 0));

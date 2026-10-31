@@ -51,7 +51,9 @@ your disk.**
 - **Progress you can see.** The on-screen display shows the progress, and the
   sidebar tab shows the current stage, the elapsed time and a log of recent
   runs.
-- **Fully offline.** The audio never leaves the machine.
+- **Fully offline.** The audio never leaves the machine. The only thing that
+  ever reaches the network is the model download, and that happens only when
+  you ask for it.
 
 ---
 
@@ -158,6 +160,7 @@ so the plugin does not load a second copy of the same transcript.
 | whisper-cli path | `/opt/homebrew/bin/whisper-cli` | Where the binary lives |
 | Engine path | *(empty)* | Path to the mlx-whisper binary, or the custom command |
 | Model file | *(empty)* | Path to the `.bin` model |
+| Proxy | *(empty)* | Proxy for the model download, for example `http://127.0.0.1:7890` |
 | Language | `zh` | ISO code, or `auto` to detect it |
 | Chunk length | `30` | Seconds per chunk. Longer chunks give the model more context |
 | Overlap | `2` | Extra audio decoded after each chunk so sentences are not cut in half |
@@ -168,21 +171,28 @@ so the plugin does not load a second copy of the same transcript.
 
 ## Custom engines
 
-Any local command that turns a media file into a SubRip file can be used. The
-command may contain these placeholders:
+Any local command that turns a piece of audio into a SubRip file can be used.
+The command may contain these placeholders:
 
 | Placeholder | Replaced with |
 |---|---|
 | `{input}` | Path of the media file |
+| `{audio}` | Path of a WAV file that holds the part of the media that is being transcribed |
 | `{output}` | Path of the SRT file to write |
 | `{model}` | Path of the model file |
 | `{language}` | The language code |
+| `{start}` | Start of the part, in seconds |
+| `{duration}` | Length of the part, in seconds |
 
 For example, to use a hypothetical tool:
 
 ```
-my-asr --input {input} --output {output} --model {model} --lang {language}
+my-asr --input {audio} --output {output} --model {model} --lang {language}
 ```
+
+The command is called once per part of the file, and the times it writes
+have to be relative to the beginning of that part. Using `{audio}` is the
+easiest way to get that right: the file holds the part and nothing else.
 
 The command runs through `/bin/sh`, so pipes and redirections are allowed.
 The placeholders expand to shell positional parameters, which means a file
@@ -202,13 +212,15 @@ command.
 3. The decoding is done by a small helper that is built on the media
    framework macOS ships with. It is compiled once, on first use, into the
    plugin folder. There is no ffmpeg and no other external program involved.
-4. The decoded audio is piped straight into the speech recognition model. No
-   temporary files are written, so a long run cannot be broken by the system
-   cleaning up a temporary folder.
+4. The decoded audio of a chunk is written to a WAV file in the plugin
+   folder, and the speech recognition model reads that file. The file is
+   removed as soon as the chunk is done. Neither program is started through
+   a shell, so a file name can never be read as a command.
 5. Every chunk is transcribed on its own. A couple of seconds of extra audio
    are decoded after each chunk so the model hears the end of a sentence
    instead of a hard cut. Cues that begin inside that overlap are dropped,
-   because the next chunk produces them properly.
+   because the next chunk produces them properly. A chunk that is silent is
+   skipped: the model would only make something up out of it.
 6. The cues are merged into a single SubRip file and reloaded into the player
    with `sub-reload`, so the subtitles on screen follow the transcription.
 7. A fingerprint of the media file, the model, the engine and the language is
@@ -230,30 +242,43 @@ The plugin only ever runs what the user has installed, and it treats the file
 names of your media as untrusted input.
 
 - The model is read from a path you chose. The plugin never downloads
-  anything without being asked to.
-- The names of your files never reach a shell command. Values are quoted, and
-  the custom engine receives its arguments as separate values instead of as
-  text that the shell has to parse.
+  anything without being asked to, and the one address it knows is the
+  address of the model collection. A downloaded model is checked against the
+  size and the SHA-256 sum that the upstream repository publishes, and a
+  file that does not match is thrown away.
+- The names of your files never reach a shell command. The built in engines
+  hand their arguments over as they are, and the custom engine receives its
+  values as separate parameters instead of as text that the shell has to
+  parse.
 - The transcript is kept under a name that is derived from a hash of the file
   path, so a file name cannot influence where a file is written.
 - The export always writes into the folder of the video and never outside of
-  it.
-- The plugin asks for three permissions: `file-system` to read the video and
-  write the transcript, `show-osd` for the progress messages and `show-alert`
-  for the dialogs. It asks for no network access at all.
+  it. It is written under a name that nobody else can guess and put into
+  place with a rename, so a link that is already there is replaced instead
+  of being written through.
+- The plugin asks for four permissions: `file-system` to read the video and
+  write the transcript, `show-osd` for the progress messages, `show-alert`
+  for the dialogs and `network-request` for the model download. The audio
+  itself never leaves the machine.
 
 ---
 
 ## Development
 
 ```bash
-node tests/run.js                                   # unit tests
-node tests/integration.js /path/to/a/video.mp4      # end to end, needs whisper
+bash scripts/package.sh
 ```
 
-The integration test builds the real decoder, runs the real pipeline over a
-real file and checks that the transcript has no overlapping cues, stays
-inside the media, covers its end and leaves no files behind.
+The build produces the `.iinaplgz` file that IINA installs. The archive is a
+plain ZIP file despite its name, and it holds the plugin files flat, without a
+folder around them.
+
+The helper that reads the audio out of a media file lives in two places: in
+`tools/vina.swift`, where it can be read, and inside `decoder.js`, where the
+plugin carries it. The two have to be the same, and the build checks that.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the way the code is put together
+and for the list of things to try after a change.
 
 ---
 

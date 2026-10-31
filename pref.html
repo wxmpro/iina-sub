@@ -18,12 +18,15 @@
     }
     .field { margin: 0 0 15px; }
     .field > label { display: block; margin-bottom: 4px; font-weight: 600; }
+    .field > .name { display: block; margin-bottom: 4px; font-weight: 600; }
     input[type="text"], input[type="number"], select {
       box-sizing: border-box;
       width: 100%;
       padding: 6px 8px;
     }
     input[type="number"] { max-width: 120px; }
+    .radio { display: block; margin: 5px 0; }
+    .radio input { margin-right: 6px; }
     .check { display: flex; gap: 7px; align-items: start; margin: 12px 0; }
     .check input { margin-top: 3px; }
     .help { margin: 4px 0 0; font-size: 11px; opacity: .68; }
@@ -41,12 +44,19 @@
 
   <h3>Engine</h3>
   <div class="field">
-    <label for="engine">Speech recognition engine</label>
-    <select id="engine" data-pref-key="engineId">
-      <option value="whisper-cpp">whisper.cpp</option>
-      <option value="mlx-whisper">mlx-whisper</option>
-      <option value="custom">Custom command</option>
-    </select>
+    <span class="name">Speech recognition engine</span>
+    <label class="radio">
+      <input type="radio" data-pref-key="engineId" name="engineId" value="whisper-cpp">
+      <span>whisper.cpp</span>
+    </label>
+    <label class="radio">
+      <input type="radio" data-pref-key="engineId" name="engineId" value="mlx-whisper">
+      <span>mlx-whisper</span>
+    </label>
+    <label class="radio">
+      <input type="radio" data-pref-key="engineId" name="engineId" value="custom">
+      <span>Custom command</span>
+    </label>
     <p class="help">
       whisper.cpp is the default and is packaged by Homebrew as
       <code>brew install whisper.cpp</code>. mlx-whisper uses the Apple Neural
@@ -64,8 +74,9 @@
     <input id="enginePath" type="text" data-pref-key="enginePath" spellcheck="false">
     <p class="help">
       Path to the mlx-whisper executable, or the full command line for the
-      custom engine. Placeholders: <code>{input}</code> <code>{output}</code>
-      <code>{model}</code> <code>{language}</code>.
+      custom engine. Placeholders: <code>{input}</code> <code>{audio}</code>
+      <code>{output}</code> <code>{model}</code> <code>{language}</code>
+      <code>{start}</code> <code>{duration}</code>.
     </p>
   </div>
 
@@ -75,8 +86,16 @@
     <input id="model" type="text" data-pref-key="modelPath" spellcheck="false">
     <p class="help">
       Path to a ggml model file, for example
-      <code>~/iina-asr/models/ggml-large-v3-q5_0.bin</code>. Use
-      <em>Plugins → iina-sub → Download Recommended Model</em> to fetch one.
+      <code>~/iina-asr/models/ggml-large-v3-q5_0.bin</code>. The button in the
+      sidebar tab of the plugin fetches one.
+    </p>
+  </div>
+  <div class="field">
+    <label for="proxy">Proxy for the model download</label>
+    <input id="proxy" type="text" data-pref-key="proxy" spellcheck="false">
+    <p class="help">
+      Optional. For example <code>http://127.0.0.1:7890</code>. It is used
+      when a model is fetched, and for nothing else.
     </p>
   </div>
 
