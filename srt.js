@@ -146,20 +146,154 @@ function mergeCues(target, incoming, offset) {
 }
 
 /**
- * A small, dependency free 64 bit FNV-1a hash rendered as hex.
- * Good enough for cache invalidation and stable across runs.
+ * The constants of the SHA-256 algorithm.
+ *
+ * They are the first thirty two bits of the fractional parts of the cube
+ * roots of the first sixty four primes.
  */
-function fnv1a(text) {
-  let h1 = 0x811c9dc5;
-  let h2 = 0x01000193;
+const SHA256_K = [
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
+  0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+  0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+  0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
+  0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+  0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+  0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+  0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+  0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+];
+
+/**
+ * The text of a string as bytes of UTF-8.
+ *
+ * The player has no TextEncoder, so the bytes are made by hand. A pair of
+ * surrogates is one character of four bytes, a lone one is written as it is.
+ */
+function utf8Bytes(text) {
+  const out = [];
   for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i);
-    h1 ^= c;
-    h1 = Math.imul(h1, 0x01000193) >>> 0;
-    h2 ^= (c + i) & 0xff;
-    h2 = Math.imul(h2, 0x85ebca6b) >>> 0;
+    let code = text.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        code = 0x10000 + ((code - 0xd800) << 10) + (next - 0xdc00);
+        i++;
+      }
+    }
+    if (code < 0x80) {
+      out.push(code);
+    } else if (code < 0x800) {
+      out.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
+    } else if (code < 0x10000) {
+      out.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+    } else {
+      out.push(
+        0xf0 | (code >> 18),
+        0x80 | ((code >> 12) & 0x3f),
+        0x80 | ((code >> 6) & 0x3f),
+        0x80 | (code & 0x3f)
+      );
+    }
   }
-  return (h1 >>> 0).toString(16).padStart(8, "0") + (h2 >>> 0).toString(16).padStart(8, "0");
+  return out;
+}
+
+/**
+ * The SHA-256 sum of a text, as a string of sixty four hex digits.
+ *
+ * The player has no cryptography of its own, so the algorithm is written
+ * out here. It is used for every name that stands for a file of the user,
+ * so that a name can never be forged into the name of another file.
+ */
+function sha256(text) {
+  const bytes = utf8Bytes(String(text));
+  const length = bytes.length;
+
+  // The message is padded: a single one bit, then zeroes, then the length
+  // of the message as a number of bits.
+  const blocks = Math.floor((length + 8) / 64) + 1;
+  const total = blocks * 64;
+  const message = new Uint8Array(total);
+  for (let i = 0; i < length; i++) message[i] = bytes[i];
+  message[length] = 0x80;
+
+  const high = Math.floor(length / 0x20000000);
+  const low = (length * 8) >>> 0;
+  message[total - 8] = (high >>> 24) & 0xff;
+  message[total - 7] = (high >>> 16) & 0xff;
+  message[total - 6] = (high >>> 8) & 0xff;
+  message[total - 5] = high & 0xff;
+  message[total - 4] = (low >>> 24) & 0xff;
+  message[total - 3] = (low >>> 16) & 0xff;
+  message[total - 2] = (low >>> 8) & 0xff;
+  message[total - 1] = low & 0xff;
+
+  let h0 = 0x6a09e667;
+  let h1 = 0xbb67ae85;
+  let h2 = 0x3c6ef372;
+  let h3 = 0xa54ff53a;
+  let h4 = 0x510e527f;
+  let h5 = 0x9b05688c;
+  let h6 = 0x1f83d9ab;
+  let h7 = 0x5be0cd19;
+
+  const w = new Uint32Array(64);
+  const rotr = (value, bits) => (value >>> bits) | (value << (32 - bits));
+
+  for (let offset = 0; offset < total; offset += 64) {
+    for (let t = 0; t < 16; t++) {
+      const i = offset + t * 4;
+      w[t] =
+        (message[i] << 24) | (message[i + 1] << 16) | (message[i + 2] << 8) | message[i + 3];
+    }
+    for (let t = 16; t < 64; t++) {
+      const x = w[t - 15];
+      const y = w[t - 2];
+      const s0 = rotr(x, 7) ^ rotr(x, 18) ^ (x >>> 3);
+      const s1 = rotr(y, 17) ^ rotr(y, 19) ^ (y >>> 10);
+      w[t] = (w[t - 16] + s0 + w[t - 7] + s1) | 0;
+    }
+
+    let a = h0;
+    let b = h1;
+    let c = h2;
+    let d = h3;
+    let e = h4;
+    let f = h5;
+    let g = h6;
+    let h = h7;
+
+    for (let t = 0; t < 64; t++) {
+      const s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+      const ch = (e & f) ^ (~e & g);
+      const temp1 = (h + s1 + ch + SHA256_K[t] + w[t]) | 0;
+      const s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const temp2 = (s0 + maj) | 0;
+      h = g;
+      g = f;
+      f = e;
+      e = (d + temp1) | 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (temp1 + temp2) | 0;
+    }
+
+    h0 = (h0 + a) | 0;
+    h1 = (h1 + b) | 0;
+    h2 = (h2 + c) | 0;
+    h3 = (h3 + d) | 0;
+    h4 = (h4 + e) | 0;
+    h5 = (h5 + f) | 0;
+    h6 = (h6 + g) | 0;
+    h7 = (h7 + h) | 0;
+  }
+
+  const hex = (value) => (value >>> 0).toString(16).padStart(8, "0");
+  return hex(h0) + hex(h1) + hex(h2) + hex(h3) + hex(h4) + hex(h5) + hex(h6) + hex(h7);
 }
 
 /**
@@ -169,7 +303,7 @@ function fnv1a(text) {
  * merges the audio invalidates the transcripts that were produced by the
  * older logic.
  */
-const TRANSCRIPT_VERSION = "1";
+const TRANSCRIPT_VERSION = "2";
 
 /**
  * Compute a stable fingerprint for a media file + model + language.
@@ -186,7 +320,7 @@ function fingerprint(parts) {
   const joined = parts
     .map((p) => (p === undefined || p === null ? "" : String(p)))
     .join("\u0000");
-  return fnv1a(joined);
+  return sha256(joined);
 }
 
 /**
@@ -342,7 +476,7 @@ function subtitlePathFor(mediaPath) {
 function internalSubtitlePathFor(mediaPath) {
   if (!mediaPath) return null;
   // Only the hash is used, so a file name can never influence the path.
-  const key = fnv1a(mediaPath);
+  const key = sha256(mediaPath).slice(0, 32);
   return utils.resolvePath("@data/subtitles/" + key + ".srt");
 }
 
@@ -354,7 +488,7 @@ function internalSubtitlePathFor(mediaPath) {
  */
 function stampPathFor(mediaPath) {
   if (!mediaPath) return null;
-  const key = fnv1a(mediaPath);
+  const key = sha256(mediaPath).slice(0, 32);
   return utils.resolvePath("@data/fingerprints/" + key + ".fp");
 }
 
@@ -368,7 +502,8 @@ module.exports = {
   mergeCues,
   plainText,
   fingerprint,
-  fnv1a,
+  sha256,
+  utf8Bytes,
   statOf,
   fileTypeOf,
   permissionBitsOf,

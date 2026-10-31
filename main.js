@@ -283,7 +283,7 @@ async function buildFingerprint(mediaPath, config, audioTrackIndex) {
   return srt.transcriptFingerprint(
     mediaPath,
     config,
-    srt.fnv1a(decoder.SWIFT_SOURCE || ""),
+    srt.sha256(decoder.SWIFT_SOURCE || "").slice(0, 32),
     audioTrackIndex
   );
 }
@@ -481,11 +481,21 @@ function showTranscript(job) {
  * A text that is safe to hand over to the sidebar.
  *
  * The sidebar is a web page, and the player builds the call that reaches it
- * out of the text itself. A backtick in the name of a file would end the
- * text and the sidebar would stop listening.
+ * out of the text itself. The name of a file is therefore not sent as text
+ * at all: it is sent as the bytes of it, written out as hex, and the
+ * sidebar turns it back into text on its own.
+ *
+ * A name that held a mark of JavaScript therefore cannot be carried out in
+ * the sidebar, whatever the player does with the text around it. The name
+ * itself also stays readable, because nothing is thrown away.
  */
-function safeText(value) {
-  return String(value === undefined || value === null ? "" : value).replace(/[`\\]/g, "'");
+function encodeText(value) {
+  const bytes = srt.utf8Bytes(String(value === undefined || value === null ? "" : value));
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) {
+    out += bytes[i].toString(16).padStart(2, "0");
+  }
+  return out;
 }
 
 /**
@@ -495,10 +505,10 @@ function pushStatus(state) {
   const given = state || {};
   const payload = {
     phase: String(given.phase || "idle"),
-    message: safeText(given.message),
-    detail: safeText(given.detail),
+    message: encodeText(given.message),
+    detail: encodeText(given.detail),
     percent: Number(given.percent) || 0,
-    video: safeText(given.video),
+    video: encodeText(given.video),
     elapsed: Number(given.elapsed) || 0,
   };
   try {
@@ -842,7 +852,7 @@ function directoryOf(path) {
 }
 
 function logActivity(text) {
-  activityLog.unshift({ time: new Date().toLocaleTimeString(), text: safeText(text) });
+  activityLog.unshift({ time: new Date().toLocaleTimeString(), text: encodeText(text) });
   while (activityLog.length > 50) activityLog.pop();
   try {
     sidebar.postMessage("activity", { entries: activityLog });

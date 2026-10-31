@@ -150,6 +150,11 @@ untouched. When you want a subtitle file next to the video, press
 The player picks that file up on its own the next time the video is opened,
 so the plugin does not load a second copy of the same transcript.
 
+The file that is written gets the same permissions as the video, so a video
+that only you may read does not leave its dialogue behind in a file that
+everybody on the machine can read. A transcript that lost a part of the file
+is not complete, and the plugin asks before it writes one.
+
 ### Settings
 
 **Preferences → Plugins → iina-sub**, or the gear icon next to the plugin.
@@ -246,6 +251,9 @@ names of your media as untrusted input.
   address of the model collection. A downloaded model is checked against the
   size and the SHA-256 sum that the upstream repository publishes, and a
   file that does not match is thrown away.
+- The download reads no settings of your own. The configuration of `curl`
+  that belongs to your account is ignored, so a file of yours cannot send
+  the download somewhere else.
 - The names of your files never reach a shell command. The built in engines
   hand their arguments over as they are, and the custom engine receives its
   values as separate parameters instead of as text that the shell has to

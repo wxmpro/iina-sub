@@ -142,6 +142,22 @@
       return m > 0 ? m + "m " + s + "s" : s + "s";
     }
 
+    // The plugin sends the text of a file name as the bytes of it, written
+    // out as hex. The bytes are turned back into text here, so that a name
+    // that holds a mark of JavaScript can never be carried out on this page.
+    function decodeText(hex) {
+      if (!hex) return "";
+      try {
+        const bytes = new Uint8Array(Math.floor(hex.length / 2));
+        for (let i = 0; i < bytes.length; i++) {
+          bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+        }
+        return new TextDecoder("utf-8").decode(bytes);
+      } catch (e) {
+        return "";
+      }
+    }
+
     // The name of the phase is turned into something that can be read.
     const PHASES = {
       idle: "Ready",
@@ -159,8 +175,8 @@
       if (!payload) return;
       const phase = payload.phase || "idle";
       phaseEl.textContent = PHASES[phase] || phase;
-      messageEl.textContent = payload.message || "";
-      detailEl.textContent = payload.detail || "";
+      messageEl.textContent = decodeText(payload.message);
+      detailEl.textContent = decodeText(payload.detail);
       const percent = Math.max(0, Math.min(100, Number(payload.percent) || 0));
       barEl.style.width = percent + "%";
       percentEl.textContent = Math.round(percent) + "%";
@@ -179,7 +195,7 @@
         time.textContent = entry.time || "";
         const text = document.createElement("span");
         text.className = "text";
-        text.textContent = entry.text || "";
+        text.textContent = decodeText(entry.text);
         li.appendChild(time);
         li.appendChild(text);
         activityEl.appendChild(li);

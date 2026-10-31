@@ -305,7 +305,7 @@ function sourcePath() {
  * plugin builds a new helper instead of quietly using the old one.
  */
 function binaryPath() {
-  return utils.resolvePath("@data/bin/vina-" + srt.fnv1a(SWIFT_SOURCE));
+  return utils.resolvePath("@data/bin/vina-" + srt.sha256(SWIFT_SOURCE).slice(0, 16));
 }
 
 /**

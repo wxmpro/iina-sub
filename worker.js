@@ -33,7 +33,7 @@ const decoder = require("./decoder.js");
  * the user can influence where a file is written.
  */
 function chunkOutputBase(mediaPath, chunk) {
-  const key = srt.fnv1a(mediaPath || "");
+  const key = srt.sha256(mediaPath || "").slice(0, 32);
   return utils.resolvePath("@data/chunks/" + key + "-" + chunk.index);
 }
 
