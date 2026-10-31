@@ -1,0 +1,158 @@
+const { utils, file, console } = iina;
+
+const srt = require("./srt.js");
+const decoder = require("./decoder.js");
+
+/**
+ * Chunked transcription worker.
+ *
+ * The video is transcribed in fixed length chunks. Each chunk is decoded and
+ * recognised on its own, and the cues are merged into a growing list.
+ *
+ * Chunking buys two things:
+ *  - subtitles appear while the video is still playing instead of only after
+ *    the whole file has been transcribed;
+ *  - a failed chunk only costs that chunk, not the whole run.
+ *
+ * A small tail of extra audio is decoded after every chunk so the model hears
+ * the end of a sentence instead of a hard cut. Cues that begin inside that
+ * tail are dropped, because the following chunk produces them properly.
+ */
+
+/**
+ * The path the engine writes its raw SubRip output to.
+ *
+ * It lives in the plugin folder, so the folder of the video only ever holds
+ * the final subtitle file.
+ *
+ * The name carries no extension: every engine appends its own suffix, the
+ * whisper.cpp engine for instance writes `<base>.srt`.
+ */
+function chunkOutputBase(chunk) {
+  return utils.resolvePath("@data/chunks/chunk-" + chunk.index);
+}
+
+/**
+ * The directory the chunk files live in.
+ */
+function chunkDirectory() {
+  return utils.resolvePath("@data/chunks");
+}
+
+/**
+ * Transcribe a single chunk and return its cues, already shifted into the
+ * timeline of the whole media file.
+ *
+ * `context` carries the pieces of the job that the worker needs:
+ *   { config, mediaPath, audioStreamIndex }
+ */
+async function transcribeChunk(context, engine, chunk, onProgress) {
+  const outBase = chunkOutputBase(chunk);
+  chunk.outBase = outBase;
+
+  // The engine writes its output with a plain file call, so the directory has
+  // to exist before the run starts.
+  await srt.ensureDir(chunkDirectory());
+
+  const cues = await engine.run(context, chunk, onProgress);
+
+  // The engine may have left a file behind. It is of no use to anyone.
+  try {
+    if (file.exists(outBase + ".srt")) file.delete(outBase + ".srt");
+  } catch (e) {
+    /* best effort */
+  }
+
+  // Drop cues that only exist because of the tail overlap and clamp cues
+  // that run past the chunk boundary. Without this the exported SRT would
+  // contain overlapping cues.
+  const chunkEndMs = chunk.startMs + chunk.lengthMs;
+  const kept = [];
+  for (const cue of cues) {
+    const start = cue.start;
+    if (start >= chunk.lengthMs) continue; // belongs to the tail
+    const end = Math.min(cue.end, chunk.lengthMs);
+    if (end <= start) continue;
+    kept.push({
+      start: chunk.startMs + start,
+      end: chunk.startMs + end,
+      text: cue.text,
+    });
+  }
+  return kept;
+}
+
+/**
+ * Plan the chunk boundaries for a media file of the given duration.
+ *
+ * `tailSeconds` is the overlap added to every chunk; it is not a chunk of
+ * its own and never produces cues on its own.
+ */
+function planChunks(durationMs, chunkSeconds, tailSeconds) {
+  const lengthMs = chunkSeconds * 1000;
+  const tailMs = tailSeconds * 1000;
+  const chunks = [];
+  if (!durationMs || durationMs <= 0) return chunks;
+  let index = 0;
+  for (let start = 0; start < durationMs; start += lengthMs) {
+    const remaining = durationMs - start;
+    chunks.push({
+      index: index++,
+      startMs: start,
+      lengthMs: Math.min(lengthMs, remaining),
+      durationMs: Math.min(lengthMs + tailMs, remaining),
+    });
+  }
+  return chunks;
+}
+
+/**
+ * Ask macOS for the duration of a media file.
+ *
+ * The duration is read with `mdls`, the metadata tool macOS ships with, so
+ * that no external program is needed. It only knows the files that the search
+ * index of the system knows, so a file that is not indexed has no duration
+ * here and the decoder is asked instead.
+ */
+async function probeDuration(mediaPath) {
+  try {
+    const res = await utils.exec("/usr/bin/mdls", [
+      "-name",
+      "kMDItemDurationSeconds",
+      "-raw",
+      mediaPath,
+    ]);
+    if (res.status !== 0 || !res.stdout) return 0;
+    const text = String(res.stdout).trim();
+    // An unknown duration is reported as "(null)".
+    if (!text || text === "(null)" || text.startsWith("(")) return 0;
+    const seconds = parseFloat(text);
+    return isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : 0;
+  } catch (e) {
+    console.warn("iina-sub: could not read the duration of " + mediaPath + ": " + e);
+    return 0;
+  }
+}
+
+/**
+ * The length of a media file, from whichever source can tell it.
+ *
+ * The player knows it while the file is playing, the metadata tool knows it
+ * for the files that the system has indexed, and the decoder knows it for
+ * every file.
+ */
+async function durationOf(mediaPath, knownMs) {
+  if (knownMs && knownMs > 0) return knownMs;
+  const indexed = await probeDuration(mediaPath);
+  if (indexed > 0) return indexed;
+  return decoder.durationOf(mediaPath);
+}
+
+module.exports = {
+  chunkOutputBase,
+  chunkDirectory,
+  transcribeChunk,
+  planChunks,
+  probeDuration,
+  durationOf,
+};

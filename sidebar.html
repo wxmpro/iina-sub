@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0;
+      padding: 16px;
+      font: -apple-system-body;
+      line-height: 1.45;
+      color: inherit;
+    }
+    h1 { font-size: 15px; margin: 0 0 12px; }
+    .phase {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      opacity: .6;
+      margin-bottom: 2px;
+    }
+    .message { font-weight: 600; margin-bottom: 2px; }
+    .detail {
+      font-size: 11px;
+      opacity: .65;
+      word-break: break-all;
+      margin-bottom: 10px;
+    }
+    .bar {
+      height: 6px;
+      border-radius: 3px;
+      background: rgba(128,128,128,.25);
+      overflow: hidden;
+      margin-bottom: 6px;
+    }
+    .bar > div {
+      height: 100%;
+      background: #0a84ff;
+      width: 0;
+      transition: width .2s ease;
+    }
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      opacity: .7;
+      margin-bottom: 16px;
+    }
+    h2 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      opacity: .6;
+      margin: 0 0 6px;
+    }
+    ul { list-style: none; margin: 0; padding: 0; }
+    li {
+      font-size: 11px;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(128,128,128,.15);
+      display: flex;
+      gap: 8px;
+    }
+    li .time { opacity: .5; flex: 0 0 auto; }
+    li .text { flex: 1 1 auto; word-break: break-word; }
+    .empty { font-size: 11px; opacity: .5; }
+    button {
+      font: inherit;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 5px;
+      border: 1px solid rgba(128,128,128,.4);
+      background: rgba(128,128,128,.12);
+      color: inherit;
+      cursor: pointer;
+    }
+    button:hover { background: rgba(128,128,128,.22); }
+    .actions { margin: 0 0 16px; }
+    dl { margin: 0; }
+    dt { font-weight: 600; font-size: 11px; margin-top: 8px; }
+    dd { margin: 0 0 0 0; font-size: 11px; opacity: .75; }
+    kbd {
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 10px;
+      border: 1px solid rgba(128,128,128,.4);
+      border-radius: 3px;
+      padding: 0 3px;
+    }
+  </style>
+</head>
+<body>
+  <h1>iina-sub</h1>
+
+  <div class="phase" id="phase">Idle</div>
+  <div class="message" id="message">Ready</div>
+  <div class="detail" id="detail"></div>
+  <div class="bar"><div id="bar"></div></div>
+  <div class="meta">
+    <span id="percent">0%</span>
+    <span id="elapsed"></span>
+  </div>
+
+  <h2>Actions</h2>
+  <div class="actions">
+    <button id="downloadModel" type="button">Download Model…</button>
+  </div>
+
+  <h2>Activity</h2>
+  <ul id="activity"></ul>
+  <p class="empty" id="empty">Nothing yet.</p>
+
+  <h2>The menu entries</h2>
+  <dl>
+    <dt>Generate Subtitles Now <kbd>⌥S</kbd></dt>
+    <dd>Transcribe the video that is playing.</dd>
+    <dt>Export Subtitles Next to the Video <kbd>⌥E</kbd></dt>
+    <dd>Write the transcript next to the video, named after it.</dd>
+    <dt>Transcribe All Videos in This Folder</dt>
+    <dd>Transcribe every video file next to the current one.</dd>
+    <dt>Regenerate Subtitles</dt>
+    <dd>Throw the transcript away and transcribe again.</dd>
+    <dt>Cancel Transcription <kbd>⌥⇧S</kbd></dt>
+    <dd>Stop the run that is in progress.</dd>
+  </dl>
+
+  <script>
+    const phaseEl = document.getElementById("phase");
+    const messageEl = document.getElementById("message");
+    const detailEl = document.getElementById("detail");
+    const barEl = document.getElementById("bar");
+    const percentEl = document.getElementById("percent");
+    const elapsedEl = document.getElementById("elapsed");
+    const activityEl = document.getElementById("activity");
+    const emptyEl = document.getElementById("empty");
+    const downloadEl = document.getElementById("downloadModel");
+
+    function formatDuration(seconds) {
+      if (!isFinite(seconds) || seconds <= 0) return "";
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      return m > 0 ? m + "m " + s + "s" : s + "s";
+    }
+
+    function onStatus(payload) {
+      if (!payload) return;
+      phaseEl.textContent = payload.phase || "idle";
+      messageEl.textContent = payload.message || "";
+      detailEl.textContent = payload.detail || "";
+      const percent = Math.max(0, Math.min(100, Number(payload.percent) || 0));
+      barEl.style.width = percent + "%";
+      percentEl.textContent = Math.round(percent) + "%";
+      const elapsed = formatDuration(payload.elapsed);
+      elapsedEl.textContent = elapsed;
+    }
+
+    function onActivity(payload) {
+      const entries = (payload && payload.entries) || [];
+      activityEl.innerHTML = "";
+      emptyEl.style.display = entries.length ? "none" : "block";
+      for (const entry of entries) {
+        const li = document.createElement("li");
+        const time = document.createElement("span");
+        time.className = "time";
+        time.textContent = entry.time || "";
+        const text = document.createElement("span");
+        text.className = "text";
+        text.textContent = entry.text || "";
+        li.appendChild(time);
+        li.appendChild(text);
+        activityEl.appendChild(li);
+      }
+    }
+
+    // The button asks the plugin to fetch a model.
+    downloadEl.addEventListener("click", function () {
+      if (window.iina && window.iina.postMessage) {
+        window.iina.postMessage("downloadModel", {});
+      }
+    });
+
+    iina.onMessage("status", onStatus);
+    iina.onMessage("activity", onActivity);
+  </script>
+</body>
+</html>

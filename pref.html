@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 20px; font: -apple-system-body; line-height: 1.4; }
+    h2 { margin: 0 0 16px; font-size: 17px; }
+    h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      opacity: .55;
+      margin: 20px 0 10px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(128,128,128,.25);
+    }
+    .field { margin: 0 0 15px; }
+    .field > label { display: block; margin-bottom: 4px; font-weight: 600; }
+    input[type="text"], input[type="number"], select {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 6px 8px;
+    }
+    input[type="number"] { max-width: 120px; }
+    .check { display: flex; gap: 7px; align-items: start; margin: 12px 0; }
+    .check input { margin-top: 3px; }
+    .help { margin: 4px 0 0; font-size: 11px; opacity: .68; }
+    code {
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 11px;
+      background: rgba(128,128,128,.15);
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+  <h2>iina-sub Settings</h2>
+
+  <h3>Engine</h3>
+  <div class="field">
+    <label for="engine">Speech recognition engine</label>
+    <select id="engine" data-pref-key="engineId">
+      <option value="whisper-cpp">whisper.cpp</option>
+      <option value="mlx-whisper">mlx-whisper</option>
+      <option value="custom">Custom command</option>
+    </select>
+    <p class="help">
+      whisper.cpp is the default and is packaged by Homebrew as
+      <code>brew install whisper.cpp</code>. mlx-whisper uses the Apple Neural
+      Engine. Custom command runs any local tool that turns a WAV file into an
+      SRT file.
+    </p>
+  </div>
+  <div class="field">
+    <label for="whisper">whisper-cli path</label>
+    <input id="whisper" type="text" data-pref-key="whisperPath" spellcheck="false">
+    <p class="help">Used by the whisper.cpp engine.</p>
+  </div>
+  <div class="field">
+    <label for="enginePath">Engine path</label>
+    <input id="enginePath" type="text" data-pref-key="enginePath" spellcheck="false">
+    <p class="help">
+      Path to the mlx-whisper executable, or the full command line for the
+      custom engine. Placeholders: <code>{input}</code> <code>{output}</code>
+      <code>{model}</code> <code>{language}</code>.
+    </p>
+  </div>
+
+  <h3>Model</h3>
+  <div class="field">
+    <label for="model">Model file</label>
+    <input id="model" type="text" data-pref-key="modelPath" spellcheck="false">
+    <p class="help">
+      Path to a ggml model file, for example
+      <code>~/iina-asr/models/ggml-large-v3-q5_0.bin</code>. Use
+      <em>Plugins → iina-sub → Download Recommended Model</em> to fetch one.
+    </p>
+  </div>
+
+  <h3>Audio</h3>
+  <p class="help">The audio is decoded with the media framework that macOS ships with, so no external decoder is needed.</p>
+  <div class="field">
+    <label for="lang">Language</label>
+    <input id="lang" type="text" data-pref-key="language" spellcheck="false">
+    <p class="help">
+      ISO code such as <code>zh</code>, <code>en</code>, <code>ja</code>, or
+      <code>auto</code> to detect it. English only models (<code>.en</code>)
+      ignore this setting.
+    </p>
+  </div>
+
+  <h3>Chunking</h3>
+  <div class="field">
+    <label for="chunk">Chunk length (seconds)</label>
+    <input id="chunk" type="number" min="10" max="300" step="5" data-type="int" data-pref-key="chunkSeconds">
+    <p class="help">
+      The file is transcribed in chunks of this length so that subtitles appear
+      while the video is still playing. Longer chunks give the model more
+      context.
+    </p>
+  </div>
+  <div class="field">
+    <label for="tail">Overlap (seconds)</label>
+    <input id="tail" type="number" min="0" max="15" step="1" data-type="int" data-pref-key="tailSeconds">
+    <p class="help">
+      Extra audio decoded after every chunk so the model hears the end of a
+      sentence. Cues that start inside the overlap are dropped.
+    </p>
+  </div>
+
+  <h3>Behaviour</h3>
+  <label class="check">
+    <input type="checkbox" data-pref-key="autoTranscribe" data-type="bool">
+    <span>Transcribe automatically when a video is opened</span>
+  </label>
+  <p class="help">
+    Subtitles then appear on their own, without touching the menu. A file
+    that has already been transcribed is loaded from the cache straight away.
+  </p>
+  <label class="check">
+    <input type="checkbox" data-pref-key="autoLoad" data-type="bool">
+    <span>Load the cached subtitles when a video is opened</span>
+  </label>
+  <p class="help">
+    The transcript is kept in the plugin folder. Nothing is written next to
+    the video unless the export command is used.
+  </p>
+</body>
+</html>

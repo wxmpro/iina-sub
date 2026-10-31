@@ -1,0 +1,32 @@
+{
+  "name": "iina-sub",
+  "identifier": "io.github.xinmin.iina-sub",
+  "version": "1.1.0",
+  "description": "Local AI subtitles for IINA. Transcribe local videos with whisper.cpp, mlx-whisper or any custom command. Native subtitle tracks, smart caching and batch transcription.",
+  "author": {
+    "name": "xinmin",
+    "email": "wxmpro@outlook.com",
+    "url": "https://github.com/wxmpro"
+  },
+  "entry": "main.js",
+  "preferencesPage": "pref.html",
+  "sidebarTab": {
+    "name": "iina-sub"
+  },
+  "preferenceDefaults": {
+    "engineId": "whisper-cpp",
+    "enginePath": "",
+    "whisperPath": "/opt/homebrew/bin/whisper-cli",
+    "modelPath": "/Users/xinmin/iina-asr/models/ggml-large-v3-q5_0.bin",
+    "language": "zh",
+    "chunkSeconds": "30",
+    "tailSeconds": "2",
+    "autoLoad": true,
+    "autoTranscribe": true
+  },
+  "permissions": [
+    "file-system",
+    "show-osd",
+    "show-alert"
+  ]
+}

@@ -1,0 +1,38 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run the tests
+        run: node tests/run.js
+
+      - name: Check that the plugin can be packaged
+        run: bash scripts/package.sh
+
+      - name: Check that every file of the plugin is in the package
+        run: |
+          set -euo pipefail
+          archive="dist/io.github.xinmin.iina-sub.iinaplgz"
+          for file in Info.json main.js srt.js worker.js engines.js decoder.js \
+                      models.js pref.html sidebar.html README.md LICENSE; do
+            if ! unzip -l "$archive" | grep -q " $file$"; then
+              echo "::error::$file is missing from the package"
+              exit 1
+            fi
+          done
+          echo "the package holds every file"
