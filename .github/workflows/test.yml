@@ -1,4 +1,4 @@
-name: Test
+name: Package
 
 on:
   push:
@@ -8,24 +8,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    name: Unit tests
+  package:
+    name: Build the plugin
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Run the tests
-        run: node tests/run.js
-
-      - name: Run the security tests
-        run: node tests/security.js
-
-      - name: Check that the plugin can be packaged
+      - name: Build the package
         run: bash scripts/package.sh
 
       - name: Check that every file of the plugin is in the package

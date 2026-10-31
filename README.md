@@ -5,6 +5,8 @@
 Transcribe local videos with a speech recognition engine that runs entirely on
 your machine. No cloud, no API key, no upload of your media.
 
+[简体中文](README.zh-CN.md)
+
 ---
 
 ## Why another subtitle plugin?
