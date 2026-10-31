@@ -22,6 +22,9 @@ jobs:
       - name: Run the tests
         run: node tests/run.js
 
+      - name: Run the security tests
+        run: node tests/security.js
+
       - name: Check that the plugin can be packaged
         run: bash scripts/package.sh
 
