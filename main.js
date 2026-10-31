@@ -1088,34 +1088,14 @@ async function commandExport() {
   // The file API of the player refuses to overwrite a file outside of the
   // plugin folder, so the copy is made by the system itself. The two paths
   // are handed over as separate values, never as text that a shell reads.
+  //
+  // The program that makes the copy puts the new file in place itself. It
+  // does not write through a link that is already there: the link is
+  // replaced, and the file it points at is left alone. Nothing is written
+  // into the folder of the video but the subtitle file itself.
   try {
-    // The copy is written under a name that nobody else can guess, so that
-    // it cannot be a link to somewhere else. Only at the very end the file
-    // is put into place, and that step is a rename, which replaces a link
-    // instead of writing through it. A file that is already there is
-    // therefore never touched before the new one is ready.
-    const temporary = await makeTemporaryFile(directoryOf(target));
-    if (!temporary) {
-      throw new Error("The folder of the video could not be written to.");
-    }
-
-    let res = await utils.exec("/bin/cp", [paths.subtitle, temporary]);
+    const res = await utils.exec("/usr/bin/install", ["-m", "0644", paths.subtitle, target]);
     if (res.status !== 0) {
-      await removeQuietly(temporary);
-      throw new Error((res.stderr || "").trim() || "exit " + res.status);
-    }
-
-    // The temporary file is private to its owner, but a subtitle file next
-    // to a video should be readable like any other file.
-    try {
-      await utils.exec("/bin/chmod", ["0644", temporary]);
-    } catch (e) {
-      /* the file is there, only its permissions are not what was asked for */
-    }
-
-    res = await utils.exec("/bin/mv", ["-f", temporary, target]);
-    if (res.status !== 0) {
-      await removeQuietly(temporary);
       throw new Error((res.stderr || "").trim() || "exit " + res.status);
     }
 
@@ -1125,36 +1105,6 @@ async function commandExport() {
     const message = e && e.message ? e.message : String(e);
     console.error("iina-sub: could not write " + target + ": " + message);
     utils.ask("iina-sub\n\nThe subtitle file could not be written.\n\n" + message);
-  }
-}
-
-/**
- * Create a file with a name that nobody else can guess in a folder.
- *
- * The file is created empty and with the permissions of its owner only, so
- * that nothing can be written through it while the copy is being made.
- */
-async function makeTemporaryFile(directory) {
-  try {
-    const res = await utils.exec("/usr/bin/mktemp", [directory + "/.iina-sub.XXXXXX"]);
-    if (res.status !== 0) return null;
-    const path = String(res.stdout || "").trim();
-    return path || null;
-  } catch (e) {
-    console.warn("iina-sub: could not create a temporary file: " + e);
-    return null;
-  }
-}
-
-/**
- * Remove a file that is not needed any more.
- */
-async function removeQuietly(path) {
-  if (!path) return;
-  try {
-    await utils.exec("/bin/rm", ["-f", path]);
-  } catch (e) {
-    /* best effort */
   }
 }
 

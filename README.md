@@ -253,9 +253,9 @@ names of your media as untrusted input.
 - The transcript is kept under a name that is derived from a hash of the file
   path, so a file name cannot influence where a file is written.
 - The export always writes into the folder of the video and never outside of
-  it. It is written under a name that nobody else can guess and put into
-  place with a rename, so a link that is already there is replaced instead
-  of being written through.
+  it. The file that is already there is replaced, not written through, so a
+  link that points somewhere else is of no use to anyone. Nothing else is
+  written into the folder of the video.
 - The plugin asks for four permissions: `file-system` to read the video and
   write the transcript, `show-osd` for the progress messages, `show-alert`
   for the dialogs and `network-request` for the model download. The audio
