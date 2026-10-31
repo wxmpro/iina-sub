@@ -139,6 +139,12 @@ async function download(modelName, onProgress) {
   onProgress({ phase: "download", percent: 0, message: "Downloading " + meta.label });
 
   const curlArgs = [
+    // The settings of the user are not read. The player starts a program
+    // without the environment of the user, so curl would look for the file
+    // in the folder the player was started in, which has nothing to do
+    // with the user. The proxy is a setting of the plugin instead.
+    // This has to be the first argument of the command.
+    "-q",
     "-L",
     "--fail",
     "--silent",

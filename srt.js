@@ -291,10 +291,17 @@ async function transcriptFingerprint(mediaPath, config, decoderHash, audioTrackI
 function subtitlePathFor(mediaPath) {
   if (!mediaPath) return null;
   if (mediaPath.indexOf("://") !== -1) return null;
-  const lastDot = mediaPath.lastIndexOf(".");
-  const base = lastDot !== -1 ? mediaPath.substring(0, lastDot) : mediaPath;
+
+  // Only the name of the file is looked at. A dot in the name of the folder
+  // has nothing to do with the name of the file, and a file without an
+  // extension still gets a subtitle file.
+  const slash = mediaPath.lastIndexOf("/");
+  const directory = slash > 0 ? mediaPath.substring(0, slash) : "/";
+  const name = mediaPath.substring(slash + 1);
+  const dot = name.lastIndexOf(".");
+  const base = dot > 0 ? mediaPath.substring(0, slash + 1 + dot) : mediaPath;
+
   // The transcript always stays in the folder of the video.
-  const directory = mediaPath.substring(0, mediaPath.lastIndexOf("/"));
   const result = base + ".srt";
   if (result.substring(0, result.lastIndexOf("/")) !== directory) return null;
   return result;
