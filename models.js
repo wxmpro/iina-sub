@@ -196,9 +196,7 @@ async function download(modelName, onProgress) {
     } catch (e) {
       /* ignore */
     }
-    throw new Error(
-      "Download failed (exit " + res.status + "): " + (res.stderr || "").trim()
-    );
+    throw new Error(networkFailure(res.status, res.stderr, "model"));
   }
 
   // The size is the cheap check, the sum is the one that means something. A
@@ -261,6 +259,33 @@ async function download(modelName, onProgress) {
   return target;
 }
 
+
+/**
+ * Turn the exit code of a failed download into something a user can act on.
+ *
+ * The codes 6, 7, 28, 35 and 60 all mean that the server could not be
+ * reached: no name, no connection, no answer, or no trusted connection. In a
+ * network where the release pages are blocked, that is what happens, and a
+ * bare "exit 28" helps nobody. The proxy setting is named instead.
+ */
+function networkFailure(status, stderr, what) {
+  const detail = String(stderr || "").trim();
+  const unreachable = [6, 7, 28, 35, 60].indexOf(Number(status)) !== -1;
+  if (!unreachable) {
+    return "The " + what + " could not be downloaded (exit " + status + "): " + detail;
+  }
+  return (
+    "The " +
+    what +
+    " could not be downloaded, because the server could not be reached.\n\n" +
+    "This is what happens on a network that blocks the release pages. " +
+    "Open the settings of the plugin (Preferences → Plugins → iina-sub), " +
+    "type the address of a proxy into the field Proxy — for example " +
+    "http://127.0.0.1:7890 — and try again.\n\n" +
+    "The program tried: " +
+    detail
+  );
+}
 
 /**
  * Whether a file is the model that the upstream repository publishes.
@@ -340,6 +365,7 @@ async function verifyModelFile(path) {
 
 module.exports = {
   MODELS,
+  networkFailure,
   MODEL_DIR,
   modelDirectory,
   installedModels,

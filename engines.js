@@ -2,6 +2,7 @@ const { utils, file, console, preferences } = iina;
 
 const srt = require("./srt.js");
 const decoder = require("./decoder.js");
+const models = require("./models.js");
 
 /**
  * Engine adapters.
@@ -216,12 +217,9 @@ async function fetchBundledWhisper(onProgress) {
     } catch (e) {
       /* ignore */
     }
-    throw new Error(
-      "The speech recognition program could not be downloaded (exit " +
-        res.status +
-        "): " +
-        (res.stderr || "").trim()
-    );
+    // The same reading of a failed connection as the model download uses,
+    // so that the way out is named the same way in both places.
+    throw new Error(models.networkFailure(res.status, res.stderr, "program"));
   }
 
   report({ phase: "download", percent: 60, message: "Checking the speech recognition program" });
