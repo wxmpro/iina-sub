@@ -97,10 +97,10 @@ function readConfig() {
   let whisperPath = configured;
   if (!whisperPath) {
     // Nothing was chosen yet, so the place where the binary usually is
-    // looked at.
+    // looked at, and after that the copy that the plugin brings along.
     whisperPath =
       WHISPER_CANDIDATES.find((candidate) => utils.fileInPath(candidate)) ||
-      WHISPER_CANDIDATES[0];
+      engines.bundledBinaryPath();
   }
 
   return {
@@ -1200,6 +1200,92 @@ function pushModels() {
 let setupOffered = false;
 
 /**
+ * Make sure the speech recognition program is ready.
+ *
+ * When Homebrew has whisper.cpp, that copy is used and nothing has to be
+ * fetched. When it does not, the plugin offers to fetch its own copy — one
+ * file, 4 MB, checked against a fixed sum before it is run.
+ *
+ * Returns true when a program is ready to run.
+ */
+async function offerEngineSetup(mediaPath, config) {
+  if (config.engineId !== "whisper-cpp") {
+    // Another engine was chosen on purpose. Its program is installed by the
+    // user, so the settings have to say where it is.
+    if (!setupOffered) {
+      setupOffered = true;
+      try {
+        validateConfig(config);
+      } catch (e) {
+        utils.ask("iina-sub\n\n" + (e && e.message ? e.message : String(e)));
+      }
+    }
+    pushStatus({
+      phase: "idle",
+      message: "The engine is not ready",
+      detail: baseName(mediaPath),
+      percent: 0,
+      video: mediaPath,
+    });
+    return false;
+  }
+
+  // A copy that was fetched earlier is used without asking again.
+  if (await engines.bundledIsValid()) {
+    preferences.set("whisperPath", engines.bundledBinaryPath());
+    preferences.sync();
+    return true;
+  }
+
+  if (setupOffered) {
+    pushStatus({
+      phase: "idle",
+      message: "The speech recognition program is missing",
+      detail: "Use the sidebar tab of the plugin to fetch it",
+      percent: 0,
+      video: mediaPath,
+    });
+    return false;
+  }
+  setupOffered = true;
+
+  const confirmed = utils.ask(
+    "iina-sub\n\nSpeech recognition needs a program. The plugin can fetch " +
+      "its own copy (about 4 MB, once) and keep it in its folder.\n\n" +
+      "Fetch it now?\n\n" +
+      "Homebrew users can install whisper.cpp instead with:\n" +
+      "brew install whisper.cpp"
+  );
+  if (!confirmed) {
+    pushStatus({
+      phase: "idle",
+      message: "The speech recognition program is missing",
+      detail: "Use the sidebar tab of the plugin to fetch it",
+      percent: 0,
+      video: mediaPath,
+    });
+    logActivity("No speech recognition program yet — the fetch was declined");
+    return false;
+  }
+
+  try {
+    const path = await engines.ensureBundledWhisper((info) => pushStatus(info));
+    preferences.set("whisperPath", path);
+    preferences.sync();
+    core.osd("iina-sub: the speech recognition program is ready");
+    logActivity("Fetched the speech recognition program");
+    return true;
+  } catch (e) {
+    const message = e && e.message ? e.message : String(e);
+    console.error("iina-sub: " + message);
+    core.osd("iina-sub: " + shortMessage(message));
+    pushStatus({ phase: "error", message: "Failed", detail: shortMessage(message) });
+    utils.ask("iina-sub\n\nThe speech recognition program could not be fetched.\n\n" + message);
+    return false;
+  }
+}
+
+/**
  * The first run of a user who has no model yet.
  *
  * The plugin cannot show subtitles without a model, and a model is fetched
@@ -1260,6 +1346,28 @@ async function offerModelDownload(mediaPath) {
     core.osd("iina-sub: " + shortMessage(message));
     pushStatus({ phase: "error", message: "Failed", detail: shortMessage(message) });
     utils.ask("iina-sub\n\nThe model could not be downloaded.\n\n" + message);
+  }
+}
+
+/**
+ * Fetch the speech recognition program without being asked first.
+ *
+ * The sidebar has a button for it, and the answer to the question of the
+ * first run is remembered, so a user who said no can still get it later.
+ */
+async function commandFetchEngine() {
+  try {
+    const path = await engines.ensureBundledWhisper((info) => pushStatus(info));
+    preferences.set("whisperPath", path);
+    preferences.sync();
+    core.osd("iina-sub: the speech recognition program is ready");
+    logActivity("Fetched the speech recognition program");
+    pushStatus({ phase: "done", message: "The speech recognition program is ready", percent: 100 });
+  } catch (e) {
+    const message = e && e.message ? e.message : String(e);
+    console.error("iina-sub: " + message);
+    core.osd("iina-sub: " + shortMessage(message));
+    utils.ask("iina-sub\n\nThe speech recognition program could not be fetched.\n\n" + message);
   }
 }
 
@@ -1428,6 +1536,9 @@ event.on("iina.window-loaded", () => {
     sidebar.onMessage("clearTranscripts", () => {
       return commandClearTranscripts();
     });
+    sidebar.onMessage("fetchEngine", () => {
+      return commandFetchEngine();
+    });
     pushModels();
   } catch (e) {
     console.warn("iina-sub: could not load the sidebar: " + e);
@@ -1504,28 +1615,16 @@ async function handleFileLoaded(mediaPath, config) {
   // new user ends with subtitles and not with an error about a model.
   const engine = engines.getEngine(config.engineId);
   if (!engine) return;
+
+  // The program of the engine comes first: without it nothing can be
+  // recognised, whatever model is there.
+  if (!engine.available(config)) {
+    const ready = await offerEngineSetup(mediaPath, config);
+    if (!ready) return;
+  }
+
   if (engine.requiresModel && !(config.modelPath && utils.fileInPath(config.modelPath))) {
     await offerModelDownload(mediaPath);
-    return;
-  }
-  if (!engine.available(config)) {
-    // The program of the engine is missing. There is nothing the plugin can
-    // fetch on its own, so the way to install it is named once.
-    if (!setupOffered) {
-      setupOffered = true;
-      try {
-        validateConfig(config);
-      } catch (e) {
-        utils.ask("iina-sub\n\n" + (e && e.message ? e.message : String(e)));
-      }
-    }
-    pushStatus({
-      phase: "idle",
-      message: "The engine is not ready",
-      detail: baseName(mediaPath),
-      percent: 0,
-      video: mediaPath,
-    });
     return;
   }
 

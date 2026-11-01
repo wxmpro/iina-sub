@@ -1,4 +1,4 @@
-const { utils, file, console } = iina;
+const { utils, file, console, preferences } = iina;
 
 const srt = require("./srt.js");
 const decoder = require("./decoder.js");
@@ -92,6 +92,196 @@ function shortMessage(text) {
   return message.length > 300 ? message.slice(0, 300) + "…" : message;
 }
 
+// ---------------------------------------------------------------------------
+// The whisper.cpp engine and the program it brings along
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the program that the plugin brings along comes from.
+ *
+ * Homebrew is the way most people get whisper.cpp, and the plugin uses that
+ * copy when it is there. A machine without Homebrew would have nothing, and
+ * the plugin is meant to work after it was installed and nothing else.
+ *
+ * whisper.cpp publishes libraries for Apple platforms but no command line
+ * program, so the plugin carries its own: the library of the release below
+ * and a small program of its own, built against that very library. Both are
+ * made once by the maintainers and published as one file next to the plugin,
+ * and the file is checked against the sum below before anything is run.
+ *
+ * The sources of the program are in `tools/whisper-cli-src`, and the script
+ * that builds the file is `scripts/build-whisper.sh`, so anyone can check
+ * what is in it and build it again.
+ */
+const WHISPER_BUNDLE_URL =
+  "https://github.com/wxmpro/iina-sub/releases/download/v1.4.0/" +
+  "iina-sub-whisper-macos.zip";
+
+/** The sum of that file. A file that does not match is thrown away. */
+const WHISPER_BUNDLE_SHA256 =
+  "ccbd18ec6b15d518028fca9ccc07ccdf17d71eb9d25d5718b3a76f2e1efab84d";
+
+/** The release of whisper.cpp that the library in that file belongs to. */
+const WHISPER_RELEASE = "b5454";
+
+/**
+ * Where the program lives once it is unpacked.
+ *
+ * It sits in the folder of the plugin, like everything else the plugin
+ * brings along. The folder of the user is never written to.
+ */
+function bundledDirectory() {
+  return utils.resolvePath("@data/whisper");
+}
+
+function bundledBinaryPath() {
+  return bundledDirectory() + "/whisper-cli";
+}
+
+function bundledLibraryPath() {
+  return bundledDirectory() + "/whisper.framework/whisper";
+}
+
+function bundledStampPath() {
+  return bundledDirectory() + "/.stamp";
+}
+
+/**
+ * Whether the program is there and is still the one that was unpacked.
+ *
+ * The library is a program that is loaded and run, so it is checked again
+ * every time it is about to be used. A library that was changed on the disk
+ * is not used.
+ */
+async function bundledIsValid() {
+  const binary = bundledBinaryPath();
+  const library = bundledLibraryPath();
+  if (!binary || !library) return false;
+  if (!utils.fileInPath(binary) || !utils.fileInPath(library)) return false;
+
+  let stamp = "";
+  try {
+    stamp = String(file.read(bundledStampPath(), {}) || "").trim();
+  } catch (e) {
+    return false;
+  }
+  if (stamp !== WHISPER_BUNDLE_SHA256) return false;
+
+  const actual = await srt.sha256OfFile(library);
+  return actual !== "";
+}
+
+/**
+ * Fetch the program and unpack it.
+ *
+ * The file is downloaded under a temporary name, checked against the sum,
+ * and only then unpacked. A file that does not match never reaches the
+ * folder the program runs from.
+ */
+async function fetchBundledWhisper(onProgress) {
+  const report = onProgress || function () {};
+  const dir = bundledDirectory();
+  if (!dir) throw new Error("The plugin folder could not be resolved.");
+  await utils.exec("/bin/mkdir", ["-p", dir]);
+
+  const archive = dir + "/whisper.zip";
+  try {
+    if (file.exists(archive)) file.delete(archive);
+  } catch (e) {
+    /* ignore */
+  }
+
+  report({ phase: "download", percent: 0, message: "Fetching the speech recognition program" });
+
+  const curlArgs = [
+    // The settings of the user are not read, and nothing but HTTPS is used.
+    "-q",
+    "-L",
+    "--fail",
+    "--silent",
+    "--show-error",
+    "--proto",
+    "=https",
+    "--proto-redir",
+    "=https",
+  ];
+  const proxy = String(preferences.get("proxy") || "").trim();
+  if (proxy) curlArgs.push("--proxy", proxy);
+  curlArgs.push("-o", archive, WHISPER_BUNDLE_URL);
+
+  const res = await utils.exec("/usr/bin/curl", curlArgs);
+  if (res.status !== 0) {
+    try {
+      file.delete(archive);
+    } catch (e) {
+      /* ignore */
+    }
+    throw new Error(
+      "The speech recognition program could not be downloaded (exit " +
+        res.status +
+        "): " +
+        (res.stderr || "").trim()
+    );
+  }
+
+  report({ phase: "download", percent: 60, message: "Checking the speech recognition program" });
+
+  const digest = await srt.sha256OfFile(archive);
+  if (digest !== WHISPER_BUNDLE_SHA256) {
+    try {
+      file.delete(archive);
+    } catch (e) {
+      /* ignore */
+    }
+    throw new Error(
+      "The downloaded speech recognition program does not match the sum " +
+        "that this plugin knows, so it was discarded.\n\nExpected: " +
+        WHISPER_BUNDLE_SHA256 +
+        "\nGot:      " +
+        (digest || "nothing")
+    );
+  }
+
+  report({ phase: "download", percent: 80, message: "Unpacking the speech recognition program" });
+
+  const unpack = await utils.exec("/usr/bin/ditto", ["-x", "-k", archive, dir]);
+  try {
+    file.delete(archive);
+  } catch (e) {
+    /* ignore */
+  }
+  if (unpack.status !== 0) {
+    throw new Error("The program could not be unpacked: " + (unpack.stderr || "").trim());
+  }
+
+  // The two files have to be programs that can be run.
+  const chmodBinary = await utils.exec("/bin/chmod", ["0755", bundledBinaryPath()]);
+  await utils.exec("/bin/chmod", ["0644", bundledLibraryPath()]);
+  if (chmodBinary.status !== 0) {
+    throw new Error("The program could not be made runnable.");
+  }
+
+  try {
+    file.write(bundledStampPath(), WHISPER_BUNDLE_SHA256 + "\n");
+  } catch (e) {
+    console.warn("iina-sub: could not write the stamp of the program: " + e);
+  }
+
+  report({ phase: "download", percent: 100, message: "The speech recognition program is ready" });
+  return bundledBinaryPath();
+}
+
+/**
+ * Make sure the program is ready and return its path.
+ *
+ * When it is already there and unchanged, nothing is fetched and nothing is
+ * unpacked.
+ */
+async function ensureBundledWhisper(onProgress) {
+  if (await bundledIsValid()) return bundledBinaryPath();
+  return fetchBundledWhisper(onProgress);
+}
+
 /**
  * whisper.cpp — the default and best supported engine.
  *
@@ -107,8 +297,9 @@ const whisperCpp = {
   id: "whisper-cpp",
   label: "whisper.cpp",
   description:
-    "C/C++ implementation of Whisper. Fast, offline, packaged by Homebrew " +
-    "as `brew install whisper.cpp`.",
+    "C/C++ implementation of Whisper. Fast, offline, and uses the GPU of " +
+    "the Mac. Homebrew is used when it is there; when it is not, the plugin " +
+    "brings its own copy.",
   requiresModel: true,
 
   available(config) {
@@ -145,7 +336,6 @@ const whisperCpp = {
       "-osrt",
       "-of", chunk.outBase,
       "-np",
-      "-pp",
     ];
 
     let res = null;
@@ -421,4 +611,14 @@ function list() {
   }));
 }
 
-module.exports = { getEngine, list, ENGINES };
+module.exports = {
+  getEngine,
+  list,
+  ENGINES,
+  WHISPER_RELEASE,
+  WHISPER_BUNDLE_URL,
+  WHISPER_BUNDLE_SHA256,
+  bundledBinaryPath,
+  bundledIsValid,
+  ensureBundledWhisper,
+};

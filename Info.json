@@ -1,7 +1,7 @@
 {
   "name": "iina-sub",
   "identifier": "io.github.xinmin.iina-sub",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Local AI subtitles for IINA. Transcribe local videos with whisper.cpp, mlx-whisper or any custom command. Native subtitle tracks, smart caching and batch transcription.",
   "author": {
     "name": "xinmin",

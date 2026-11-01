@@ -143,6 +143,16 @@ the transcripts the plugin has kept.
 
 ### The first run
 
+> **A note about the download speed.** The plugin fetches two things from
+> GitHub: its own copy of the speech recognition program (about 4 MB) and,
+> when you pick one, a model (the recommended one is 547 MB). GitHub is slow
+> or unreachable from some networks, mainland China among them. If the
+> download stalls, set a proxy in the plugin settings (`Preferences →
+> Plugins → iina-sub → Proxy`, for example `http://127.0.0.1:7890`) and try
+> again. Nothing else in the plugin needs the network: after the program and
+> the model are there, transcription works offline.
+
+
 The plugin needs two things that it does not carry: the speech recognition
 program, and a model. When a video is opened and no model is set, the plugin
 asks once whether to fetch the recommended model (547 MB). It is downloaded
