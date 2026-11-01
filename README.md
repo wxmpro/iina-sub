@@ -138,7 +138,8 @@ appear as soon as the first chunk is done.
 The player shows five entries of a plugin menu at most and puts the rest
 behind a "More…" item. The sidebar tab of the plugin shows the progress of the
 run, the files that were transcribed and a short explanation of every menu
-entry. It also has a button that fetches a model.
+entry. It also has a button that fetches a model and a button that removes
+the transcripts the plugin has kept.
 
 ### Exporting
 
@@ -250,7 +251,15 @@ names of your media as untrusted input.
   anything without being asked to, and the one address it knows is the
   address of the model collection. A downloaded model is checked against the
   size and the SHA-256 sum that the upstream repository publishes, and a
-  file that does not match is thrown away.
+  file that does not match is thrown away. A model of the collection is
+  checked the same way before it is used, because the engine loads such a
+  file as a program.
+- The helper that reads the audio out of the video is built by the plugin
+  and is only used when it still carries the sum that was written down when
+  it was built. A file that was changed is built again.
+- The name of a file never reaches the sidebar as text. It travels as the
+  bytes of it, so a name that holds a mark of JavaScript cannot be carried
+  out on that page.
 - The download reads no settings of your own. The configuration of `curl`
   that belongs to your account is ignored, so a file of yours cannot send
   the download somewhere else.

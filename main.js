@@ -525,6 +525,12 @@ function pushStatus(state) {
  */
 async function runJob(job) {
   const { config, engine } = job;
+
+  // The audio of earlier runs is removed before this one starts. A run that
+  // was stopped half way leaves the audio of the part it had reached, and
+  // that audio is the voice of the user in plain text.
+  await worker.clearChunkDirectory();
+
   const chunks = worker.planChunks(job.durationMs, config.chunkSeconds, config.tailSeconds);
   if (chunks.length === 0) {
     throw new Error("The duration of this file is unknown, so it cannot be split into chunks.");
@@ -727,6 +733,16 @@ async function prepareJob(job) {
     effectiveTrackIndex(job.context.audioTrackIndex)
   );
   job.context.decoder = await decoder.ensureDecoder();
+
+  // A model of the catalogue is looked at before it is used. The engine
+  // loads such a file as a program, so a file that was changed on the way
+  // is not used at all.
+  if (job.engine && job.engine.requiresModel) {
+    const check = await models.verifyModelFile(job.config.modelPath);
+    if (!check.ok) {
+      throw new Error("The model was not used. " + check.reason);
+    }
+  }
   return job;
 }
 
@@ -1142,6 +1158,57 @@ async function commandExport() {
 }
 
 /**
+ * Remove every transcript that the plugin has kept.
+ *
+ * The transcripts live in the plugin folder and are named after a hash of the
+ * path of the video, so there is no way to tell from the name which one
+ * belongs to which video. They are removed together.
+ *
+ * The videos are not touched, and the files next to them are not touched
+ * either.
+ */
+async function commandClearTranscripts() {
+  const confirmed = utils.ask(
+    "iina-sub\n\nRemove every transcript that the plugin has kept?\n\n" +
+      "The videos themselves are not touched, and the subtitle files next " +
+      "to them are not touched either."
+  );
+  if (!confirmed) return;
+
+  const folders = [
+    utils.resolvePath("@data/subtitles"),
+    utils.resolvePath("@data/fingerprints"),
+  ];
+  let removed = 0;
+  for (const folder of folders) {
+    if (!folder) continue;
+    let entries = [];
+    try {
+      entries = file.list(folder, {}) || [];
+    } catch (e) {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry || entry.isDir) continue;
+      try {
+        file.delete(folder + "/" + entry.filename);
+        removed++;
+      } catch (e) {
+        /* best effort */
+      }
+    }
+  }
+
+  core.osd("iina-sub: " + removed + " files removed");
+  logActivity("Removed the saved transcripts");
+  pushStatus({
+    phase: "idle",
+    message: "The saved transcripts were removed",
+    percent: 0,
+  });
+}
+
+/**
  * Download a model into the plugin folder.
  *
  * The dialog asks for the name of the model. An empty answer means the
@@ -1150,7 +1217,13 @@ async function commandExport() {
  */
 async function commandDownloadModel() {
   try {
-    const list = models.MODELS.map((m) => m.name + "  —  " + m.note).join("\n");
+    // The models that are already there are named, so that the user does
+    // not fetch one twice.
+    const installed = models.installedModels();
+    const list = models.MODELS.map((m) => {
+      const there = installed.some((i) => i.name === m.name) ? "  (already downloaded)" : "";
+      return m.name + "  —  " + m.note + there;
+    }).join("\n");
     const typed = utils.prompt(
       "iina-sub\n\nType the name of the model to download. Leave the field empty " +
         "for the recommended one.\n\n" +
@@ -1232,6 +1305,9 @@ event.on("iina.window-loaded", () => {
     // loading it clears the listeners.
     sidebar.onMessage("downloadModel", () => {
       commandDownloadModel();
+    });
+    sidebar.onMessage("clearTranscripts", () => {
+      commandClearTranscripts();
     });
   } catch (e) {
     console.warn("iina-sub: could not load the sidebar: " + e);

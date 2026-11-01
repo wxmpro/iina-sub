@@ -1,5 +1,10 @@
 const { utils, file, preferences, console } = iina;
 
+const srt = require("./srt.js");
+
+const srtStat = srt.statOf;
+const sha256Of = srt.sha256OfFile;
+
 /**
  * Catalogue of whisper.cpp ggml models that can be downloaded from inside the
  * plugin.
@@ -67,6 +72,14 @@ const MODELS = [
 const MODEL_DIR = "@data/models";
 
 /**
+ * What is known about the models that were looked at.
+ *
+ * The sum of a model of a gigabyte takes a moment to compute, so the result
+ * is kept for as long as the file stays the same.
+ */
+const modelChecks = new Map();
+
+/**
  * Absolute path of the directory that holds downloaded models.
  */
 function modelDirectory() {
@@ -125,7 +138,15 @@ async function download(modelName, onProgress) {
   }
 
   const target = dir + "/" + meta.name;
-  if (file.exists(target)) return target;
+
+  // A file that is already there is only used when it is the model that the
+  // upstream repository publishes. A file that was put there by something
+  // else is not taken for the model: a model is a program that the engine
+  // loads, so a file that does not match is fetched again.
+  if (file.exists(target)) {
+    const known = await verifyFile(target, meta);
+    if (known) return target;
+  }
 
   const partial = target + ".part";
   if (file.exists(partial)) {
@@ -240,28 +261,89 @@ async function download(modelName, onProgress) {
   return target;
 }
 
-async function srtStat(path) {
-  try {
-    const res = await utils.exec("/usr/bin/stat", ["-f", "%z", "--", path]);
-    if (res.status !== 0) return null;
-    return { size: Number(String(res.stdout).trim()) };
-  } catch (e) {
-    return null;
-  }
+
+/**
+ * Whether a file is the model that the upstream repository publishes.
+ *
+ * Both the size and the sum have to match. The file itself is not touched.
+ */
+async function verifyFile(path, meta) {
+  const stat = await srtStat(path);
+  if (!stat || stat.size !== meta.bytes) return false;
+  const digest = await sha256Of(path);
+  if (!digest) return false;
+  return digest.toLowerCase() === meta.sha256.toLowerCase();
 }
 
 /**
- * The SHA-256 sum of a file, in lower case.
+ * Check a model file that the user chose.
+ *
+ * A file whose name is one of the models of the catalogue is compared with
+ * the sum that the upstream repository publishes, because the engine loads
+ * such a file as a program. A file of any other name is one the user brought
+ * along, and nothing is known about it.
+ *
+ * Returns { known, ok, reason }.
  */
-async function sha256Of(path) {
-  try {
-    const res = await utils.exec("/usr/bin/shasum", ["-a", "256", "--", path]);
-    if (res.status !== 0) return null;
-    const digest = String(res.stdout || "").trim().split(/\s+/)[0];
-    return /^[0-9a-f]{64}$/i.test(digest) ? digest : null;
-  } catch (e) {
-    return null;
+async function verifyModelFile(path) {
+  if (!path) return { known: false, ok: true, reason: "" };
+  const name = String(path).split("/").pop() || "";
+  const meta = MODELS.find((m) => m.name === name);
+  if (!meta) return { known: false, ok: true, reason: "" };
+
+  const stat = await srtStat(path);
+  if (!stat) {
+    return { known: true, ok: false, reason: "The model file could not be read." };
   }
+  if (stat.size !== meta.bytes) {
+    return {
+      known: true,
+      ok: false,
+      reason:
+        "The model file has the wrong size (" +
+        stat.size +
+        ", expected " +
+        meta.bytes +
+        ").",
+    };
+  }
+  // The sum of a model of a gigabyte takes a moment, so the result is kept
+  // for as long as the file stays the same. A file that changed is looked
+  // at again.
+  const remembered = modelChecks.get(path);
+  if (remembered && remembered.size === stat.size && remembered.mtime === stat.mtime) {
+    return remembered.result;
+  }
+
+  const digest = await sha256Of(path);
+  if (!digest) {
+    return { known: true, ok: false, reason: "The sum of the model file could not be read." };
+  }
+  const result =
+    digest.toLowerCase() === meta.sha256.toLowerCase()
+      ? { known: true, ok: true, reason: "" }
+      : {
+          known: true,
+          ok: false,
+          reason:
+            "The model file does not carry the sum that the upstream repository " +
+            "publishes, so it was not used.\n\nExpected: " +
+            meta.sha256 +
+            "\nGot:      " +
+            digest.toLowerCase(),
+        };
+  modelChecks.set(path, { size: stat.size, mtime: stat.mtime, result: result });
+  return result;
 }
 
-module.exports = { MODELS, MODEL_DIR, modelDirectory, installedModels, download };
+
+
+module.exports = {
+  MODELS,
+  MODEL_DIR,
+  modelDirectory,
+  installedModels,
+  download,
+  verifyFile,
+  verifyModelFile,
+};

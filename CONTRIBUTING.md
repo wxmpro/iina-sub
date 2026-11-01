@@ -35,7 +35,7 @@ The helper exists twice: `tools/vina.swift` is the copy that is read, and
 scripts. The two have to be identical. The build checks that, and a change to
 one of them without the other is the one mistake that is easiest to make.
 
-## Four rules that are easy to break
+## Six rules that are easy to break
 
 **A module may only be loaded while the file that asks for it is being
 read.** The player resolves a module path relative to the script that is
@@ -57,6 +57,18 @@ whole file puts every subtitle in the wrong place.
 the plugin that a transcript may be used is written at the end of a run, not
 after every chunk. A transcript that was stopped half way, or that lost a
 chunk, is transcribed again the next time the file is opened.
+
+**A file name never reaches the sidebar as text.** The player builds the call
+that reaches the sidebar out of the text it is given, and a name that holds a
+mark of JavaScript would be carried out on that page. The name therefore
+travels as the bytes of it, written out as hex, and the sidebar turns it back
+into text on its own.
+
+**A program is only used when it is the one that was built.** The helper that
+reads the audio carries the sum that was written down when it was built, and
+is built again when it does not. A model of the collection is compared with
+the sum that the upstream repository publishes before it is used, because the
+engine loads such a file as a program.
 
 ## Adding an engine
 
@@ -100,6 +112,9 @@ it, so please check a change in the places it can go wrong:
 - an export over a file that is already there replaces it, and leaves the
   file it replaces alone;
 - a file name with a quote, a semicolon or a space in it is handled;
+- a file name that holds a mark of JavaScript shows up as a name in the
+  sidebar, and nothing is carried out there;
+- a model that was changed after it was fetched is not used;
 - a file that the search index of the system does not know is transcribed just
   as well as one in your downloads folder;
 - the engine can be changed in the settings, and the setting is remembered.

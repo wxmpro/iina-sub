@@ -24,17 +24,6 @@ const decoder = require("./decoder.js");
  */
 
 /**
- * Quote a string so it can be safely embedded in a shell command.
- *
- * Only the custom engine needs this: it runs a command line that the user
- * wrote, and that one may hold pipes and redirections. The other engines
- * hand their arguments over as they are, so nothing has to be quoted.
- */
-function shellQuote(value) {
-  return "'" + String(value).replace(/'/g, "'\\''") + "'";
-}
-
-/**
  * Whether a path is absolute.
  *
  * A relative path would be looked up in the working folder of the player,
@@ -432,4 +421,4 @@ function list() {
   }));
 }
 
-module.exports = { getEngine, list, ENGINES, shellQuote };
+module.exports = { getEngine, list, ENGINES };

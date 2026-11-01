@@ -365,6 +365,23 @@ async function fileTypeOf(path) {
 }
 
 /**
+ * The SHA-256 sum of a file, in lower case.
+ *
+ * An empty string when the file cannot be read.
+ */
+async function sha256OfFile(path) {
+  if (!path) return "";
+  try {
+    const res = await utils.exec("/usr/bin/shasum", ["-a", "256", "--", path]);
+    if (res.status !== 0) return "";
+    const digest = String(res.stdout || "").trim().split(/\s+/)[0];
+    return /^[0-9a-f]{64}$/i.test(digest) ? digest.toLowerCase() : "";
+  } catch (e) {
+    return "";
+  }
+}
+
+/**
  * The permission bits of a file, as three octal digits ("644").
  *
  * Only the bits that decide who may read, write and look at the file are
@@ -507,6 +524,7 @@ module.exports = {
   statOf,
   fileTypeOf,
   permissionBitsOf,
+  sha256OfFile,
   ensureDir,
   subtitlePathFor,
   internalSubtitlePathFor,

@@ -309,6 +309,74 @@ function binaryPath() {
 }
 
 /**
+ * The place where the sum of the built helper is kept.
+ *
+ * It sits next to the helper itself. A helper without a sum next to it is
+ * not the one of this plugin, and is built again.
+ */
+function checksumPath() {
+  return binaryPath() + ".sha256";
+}
+
+/**
+ * The sum that was written down when the helper was built.
+ */
+function readChecksum() {
+  const path = checksumPath();
+  if (!path) return "";
+  try {
+    if (!file.exists(path)) return "";
+    return String(file.read(path, {}) || "").trim().toLowerCase();
+  } catch (e) {
+    return "";
+  }
+}
+
+/**
+ * Write down the sum of the helper that was just built.
+ */
+async function writeChecksum() {
+  const path = checksumPath();
+  const digest = await srt.sha256OfFile(binaryPath());
+  if (!path || !digest) return false;
+  try {
+    file.write(path, digest + "\n");
+    return true;
+  } catch (e) {
+    console.warn("iina-sub: could not write down the sum of the helper: " + e);
+    return false;
+  }
+}
+
+/**
+ * Remove the helpers of older versions of the plugin.
+ *
+ * Only the folder of the plugin is touched, and only the files that are not
+ * the helper of this version.
+ */
+async function removeStaleHelpers() {
+  const dir = utils.resolvePath("@data/bin");
+  if (!dir) return;
+  let entries = [];
+  try {
+    entries = file.list(dir, {}) || [];
+  } catch (e) {
+    return;
+  }
+  const keep = [binaryPath(), checksumPath()];
+  for (const entry of entries) {
+    if (!entry || entry.isDir) continue;
+    const full = dir + "/" + entry.filename;
+    if (keep.indexOf(full) !== -1) continue;
+    try {
+      file.delete(full);
+    } catch (e) {
+      /* best effort */
+    }
+  }
+}
+
+/**
  * Make sure the helper is ready and return the command that runs it.
  *
  * The command is either the compiled binary or, when no compiler is
@@ -336,7 +404,19 @@ let pending = null;
 async function buildDecoder() {
   const binary = binaryPath();
   if (binary && utils.fileInPath(binary)) {
-    return { command: binary, args: [], compiled: true };
+    // The helper is only used when it is the one that was built from the
+    // source of this plugin. A file that was changed, or one that was put
+    // there by something else, is built again.
+    const expected = readChecksum();
+    if (expected) {
+      const actual = await srt.sha256OfFile(binary);
+      if (actual && actual === expected) {
+        return { command: binary, args: [], compiled: true };
+      }
+    }
+    console.warn(
+      "iina-sub: the audio helper is not the one of this plugin, so it is built again."
+    );
   }
 
   const source = sourcePath();
@@ -374,6 +454,8 @@ async function buildDecoder() {
     if (res.status === 0 && temporary && utils.fileInPath(temporary)) {
       const move = await utils.exec("/bin/mv", ["-f", temporary, binary]);
       if (move.status === 0 && binary && utils.fileInPath(binary)) {
+        await writeChecksum();
+        await removeStaleHelpers();
         return { command: binary, args: [], compiled: true };
       }
     }
@@ -477,6 +559,8 @@ async function writeWav(outputPath, mediaPath, startSeconds, durationSeconds, tr
 module.exports = {
   ensureDecoder,
   prepareDecoder,
+  checksumPath,
+  readChecksum,
   durationOf,
   writeWav,
   sourcePath,
