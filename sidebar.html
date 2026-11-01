@@ -77,6 +77,17 @@
     }
     button:hover { background: rgba(128,128,128,.22); }
     .actions { margin: 0 0 16px; }
+    .models { margin: 0 0 8px; }
+    .model {
+      display: block;
+      width: 100%;
+      text-align: left;
+      margin: 0 0 6px;
+      padding: 6px 10px;
+    }
+    .model .name { font-weight: 600; display: block; }
+    .model .note { font-size: 10px; opacity: .65; display: block; margin-top: 1px; }
+    .model.downloaded { opacity: .55; }
     dl { margin: 0; }
     dt { font-weight: 600; font-size: 11px; margin-top: 8px; }
     dd { margin: 0 0 0 0; font-size: 11px; opacity: .75; }
@@ -101,9 +112,12 @@
     <span id="elapsed"></span>
   </div>
 
+  <h2>Models</h2>
+  <div id="models" class="models"></div>
+  <p class="empty" id="modelsEmpty">Loading the models…</p>
+
   <h2>Actions</h2>
   <div class="actions">
-    <button id="downloadModel" type="button">Download Model…</button>
     <button id="clearTranscripts" type="button">Clear Saved Transcripts…</button>
   </div>
 
@@ -134,7 +148,8 @@
     const elapsedEl = document.getElementById("elapsed");
     const activityEl = document.getElementById("activity");
     const emptyEl = document.getElementById("empty");
-    const downloadEl = document.getElementById("downloadModel");
+    const modelsEl = document.getElementById("models");
+    const modelsEmptyEl = document.getElementById("modelsEmpty");
     const clearEl = document.getElementById("clearTranscripts");
 
     function formatDuration(seconds) {
@@ -204,12 +219,33 @@
       }
     }
 
-    // The button asks the plugin to fetch a model.
-    downloadEl.addEventListener("click", function () {
-      if (window.iina && window.iina.postMessage) {
-        window.iina.postMessage("downloadModel", {});
+    // One button per model of the catalogue. The button that is pressed
+    // names the model, so nothing has to be typed.
+    function onModels(payload) {
+      const list = (payload && payload.models) || [];
+      modelsEl.innerHTML = "";
+      modelsEmptyEl.style.display = list.length ? "none" : "block";
+      for (const model of list) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "model" + (model.downloaded ? " downloaded" : "");
+        const name = document.createElement("span");
+        name.className = "name";
+        name.textContent =
+          model.label + (model.recommended ? " — recommended" : "") + (model.downloaded ? " — on the disk" : "");
+        const note = document.createElement("span");
+        note.className = "note";
+        note.textContent = model.downloaded ? "Press to fetch it again" : model.note;
+        button.appendChild(name);
+        button.appendChild(note);
+        button.addEventListener("click", function () {
+          if (window.iina && window.iina.postMessage) {
+            window.iina.postMessage("downloadModel", { name: model.name });
+          }
+        });
+        modelsEl.appendChild(button);
       }
-    });
+    }
 
     // The other button asks the plugin to remove the transcripts it kept.
     clearEl.addEventListener("click", function () {
@@ -220,6 +256,7 @@
 
     iina.onMessage("status", onStatus);
     iina.onMessage("activity", onActivity);
+    iina.onMessage("models", onModels);
   </script>
 </body>
 </html>

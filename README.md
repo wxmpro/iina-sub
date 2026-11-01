@@ -141,6 +141,25 @@ run, the files that were transcribed and a short explanation of every menu
 entry. It also has a button that fetches a model and a button that removes
 the transcripts the plugin has kept.
 
+### The first run
+
+The plugin needs two things that it does not carry: the speech recognition
+program, and a model. When a video is opened and no model is set, the plugin
+asks once whether to fetch the recommended model (547 MB). It is downloaded
+once, kept in the folder of the plugin, and works without network after
+that. When it is there, the video that was open is transcribed right away.
+
+The program itself is not something the plugin can install. Install it once
+with Homebrew:
+
+```bash
+brew install whisper.cpp
+```
+
+The plugin finds the binary on its own afterwards. Every model of the
+collection is also shown as a button in the sidebar tab of the plugin, so
+nothing has to be typed to fetch one.
+
 ### Exporting
 
 The transcript is kept inside the plugin folder, so your video folders stay

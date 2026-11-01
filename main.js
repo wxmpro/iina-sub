@@ -375,6 +375,14 @@ function validateConfig(config) {
     throw new Error("The model was not found at " + config.modelPath + ".");
   }
   if (!engine.available(config)) {
+    if (engine.id === "whisper-cpp") {
+      throw new Error(
+        "The speech recognition program is not installed. Install it once " +
+          "with `brew install whisper.cpp` in the Terminal. It is then found " +
+          "at /opt/homebrew/bin/whisper-cli (Apple Silicon) or " +
+          "/usr/local/bin/whisper-cli (Intel) on its own."
+      );
+    }
     throw new Error(
       "The engine " +
         engine.label +
@@ -1158,6 +1166,104 @@ async function commandExport() {
 }
 
 /**
+ * Tell the sidebar which models the catalogue holds and which of them are
+ * already on the disk. The sidebar shows one button per model, so nothing
+ * has to be typed to fetch one.
+ */
+function pushModels() {
+  let installed = [];
+  try {
+    installed = models.installedModels();
+  } catch (e) {
+    installed = [];
+  }
+  const payload = models.MODELS.map((m) => ({
+    name: m.name,
+    label: m.label,
+    note: m.note,
+    recommended: !!m.recommended,
+    downloaded: installed.some((i) => i.name === m.name),
+  }));
+  try {
+    sidebar.postMessage("models", { models: payload });
+  } catch (e) {
+    console.warn("iina-sub: the sidebar did not take the models: " + e);
+  }
+}
+
+/**
+ * Whether the offer to fetch a model was made in this launch.
+ *
+ * The offer is made once. A user who said no is not asked again until the
+ * player is started again.
+ */
+let setupOffered = false;
+
+/**
+ * The first run of a user who has no model yet.
+ *
+ * The plugin cannot show subtitles without a model, and a model is fetched
+ * once and kept. Instead of an error that sends the user hunting through
+ * the settings, the recommended model is offered here, with one question.
+ * When it is fetched, the video that was opened is transcribed right away.
+ */
+async function offerModelDownload(mediaPath) {
+  if (setupOffered) {
+    pushStatus({
+      phase: "idle",
+      message: "No model yet",
+      detail: "Use the sidebar tab of the plugin to fetch one",
+      percent: 0,
+      video: mediaPath,
+    });
+    return;
+  }
+  setupOffered = true;
+
+  const recommended = models.MODELS.find((m) => m.recommended) || models.MODELS[0];
+  const confirmed = utils.ask(
+    "iina-sub\n\nTo show subtitles, a speech model is needed. It is downloaded " +
+      "once (" +
+      recommended.label +
+      "), kept in the folder of the plugin, and works without network after " +
+      "that.\n\nFetch " +
+      recommended.label +
+      " now?"
+  );
+  if (!confirmed) {
+    pushStatus({
+      phase: "idle",
+      message: "No model yet",
+      detail: "Use the sidebar tab of the plugin to fetch one",
+      percent: 0,
+      video: mediaPath,
+    });
+    logActivity("No model yet — the fetch was declined");
+    return;
+  }
+
+  try {
+    pushStatus({ phase: "download", message: "Downloading " + recommended.label, percent: 0 });
+    const path = await models.download(recommended.name, (info) => pushStatus(info));
+    preferences.set("modelPath", path);
+    preferences.sync();
+    pushModels();
+    logActivity("Fetched " + recommended.label);
+
+    // The video that was opened is transcribed now, so that the first run
+    // ends with subtitles on the screen and not with a downloaded file.
+    const duration = await worker.durationOf(mediaPath, currentDurationMs());
+    if (duration) await startTranscription(mediaPath, duration, true);
+  } catch (e) {
+    const message = e && e.message ? e.message : String(e);
+    console.error("iina-sub: " + message);
+    core.osd("iina-sub: " + shortMessage(message));
+    pushStatus({ phase: "error", message: "Failed", detail: shortMessage(message) });
+    utils.ask("iina-sub\n\nThe model could not be downloaded.\n\n" + message);
+  }
+}
+
+/**
  * Remove every transcript that the plugin has kept.
  *
  * The transcripts live in the plugin folder and are named after a hash of the
@@ -1215,30 +1321,40 @@ async function commandClearTranscripts() {
  * recommended one, which is the one that gives the best result for the
  * effort it takes.
  */
-async function commandDownloadModel() {
+async function commandDownloadModel(name) {
   try {
-    // The models that are already there are named, so that the user does
-    // not fetch one twice.
-    const installed = models.installedModels();
-    const list = models.MODELS.map((m) => {
-      const there = installed.some((i) => i.name === m.name) ? "  (already downloaded)" : "";
-      return m.name + "  —  " + m.note + there;
-    }).join("\n");
-    const typed = utils.prompt(
-      "iina-sub\n\nType the name of the model to download. Leave the field empty " +
-        "for the recommended one.\n\n" +
+    let meta = null;
+    if (name) {
+      // The sidebar names the model, so nothing has to be typed.
+      meta = models.MODELS.find((m) => m.name === String(name));
+      if (!meta) {
+        utils.ask("iina-sub\n\nThere is no model called \"" + name + "\".");
+        return;
+      }
+    } else {
+      // The models that are already there are named, so that the user does
+      // not fetch one twice.
+      const installed = models.installedModels();
+      const list = models.MODELS.map((m) => {
+        const there = installed.some((i) => i.name === m.name) ? "  (already downloaded)" : "";
+        return m.name + "  —  " + m.note + there;
+      }).join("\n");
+      const typed = utils.prompt(
+        "iina-sub\n\nType the name of the model to download. Leave the field empty " +
+          "for the recommended one.\n\n" +
         list
-    );
-    if (typed === null || typed === undefined) return;
+      );
+      if (typed === null || typed === undefined) return;
 
-    const wanted = String(typed).trim();
-    const meta = wanted
-      ? models.MODELS.find((m) => m.name === wanted)
-      : models.MODELS.find((m) => m.recommended) || models.MODELS[0];
+      const wanted = String(typed).trim();
+      meta = wanted
+        ? models.MODELS.find((m) => m.name === wanted)
+        : models.MODELS.find((m) => m.recommended) || models.MODELS[0];
 
-    if (!meta) {
-      utils.ask("iina-sub\n\nThere is no model called \"" + wanted + "\".\n\n" + list);
-      return;
+      if (!meta) {
+        utils.ask("iina-sub\n\nThere is no model called \"" + wanted + "\".\n\n" + list);
+        return;
+      }
     }
 
     core.osd("iina-sub: downloading " + meta.label);
@@ -1248,6 +1364,7 @@ async function commandDownloadModel() {
     preferences.sync();
     core.osd("iina-sub: " + meta.label + " is ready");
     pushStatus({ phase: "done", message: meta.label + " is ready", percent: 100 });
+    pushModels();
   } catch (e) {
     const message = e && e.message ? e.message : String(e);
     console.error("iina-sub: " + message);
@@ -1303,12 +1420,15 @@ event.on("iina.window-loaded", () => {
     // The button of the sidebar asks the plugin to fetch a model. The
     // listener has to be registered after the page was loaded, because
     // loading it clears the listeners.
-    sidebar.onMessage("downloadModel", () => {
-      commandDownloadModel();
+    // The promise is handed back, so that a test can wait for the download
+    // to be over. The player itself pays no attention to it.
+    sidebar.onMessage("downloadModel", (data) => {
+      return commandDownloadModel(data && data.name);
     });
     sidebar.onMessage("clearTranscripts", () => {
-      commandClearTranscripts();
+      return commandClearTranscripts();
     });
+    pushModels();
   } catch (e) {
     console.warn("iina-sub: could not load the sidebar: " + e);
   }
@@ -1379,6 +1499,35 @@ async function handleFileLoaded(mediaPath, config) {
   if (!config.autoTranscribe) return;
   if (batchRunning) return;
   if (isBusy()) return;
+
+  // The setup is checked before the run starts, so that the first run of a
+  // new user ends with subtitles and not with an error about a model.
+  const engine = engines.getEngine(config.engineId);
+  if (!engine) return;
+  if (engine.requiresModel && !(config.modelPath && utils.fileInPath(config.modelPath))) {
+    await offerModelDownload(mediaPath);
+    return;
+  }
+  if (!engine.available(config)) {
+    // The program of the engine is missing. There is nothing the plugin can
+    // fetch on its own, so the way to install it is named once.
+    if (!setupOffered) {
+      setupOffered = true;
+      try {
+        validateConfig(config);
+      } catch (e) {
+        utils.ask("iina-sub\n\n" + (e && e.message ? e.message : String(e)));
+      }
+    }
+    pushStatus({
+      phase: "idle",
+      message: "The engine is not ready",
+      detail: baseName(mediaPath),
+      percent: 0,
+      video: mediaPath,
+    });
+    return;
+  }
 
   const duration = await worker.durationOf(mediaPath, currentDurationMs());
   if (!duration) return;
