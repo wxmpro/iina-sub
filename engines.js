@@ -76,6 +76,44 @@ function findJsonFile(directory) {
 }
 
 /**
+ * Run a program and give up waiting after a while.
+ *
+ * The player has no way of stopping a program that it started, so a program
+ * that never returns would hold the plugin for ever and every later request
+ * would be answered with "a transcription is already running". The wait is
+ * given a limit instead: a part of a file that cannot be recognised within
+ * that limit is a part that failed.
+ *
+ * Returns the same shape as `utils.exec`.
+ */
+function runWithLimit(command, args, limitMs) {
+  const running = utils.exec(command, args);
+  let timer = null;
+  const limit = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      resolve({
+        status: -1,
+        stdout: "",
+        stderr:
+          "The program did not finish within " +
+          Math.round(limitMs / 60000) +
+          " minutes and was given up on.",
+      });
+    }, limitMs);
+  });
+  return Promise.race([running, limit]).then(
+    (result) => {
+      if (timer !== null) clearTimeout(timer);
+      return result;
+    },
+    (error) => {
+      if (timer !== null) clearTimeout(timer);
+      throw error;
+    }
+  );
+}
+
+/**
  * A short form of the message of a failed program.
  *
  * The speech model prints its whole help when it is used wrongly, and that
@@ -115,12 +153,12 @@ function shortMessage(text) {
  * what is in it and build it again.
  */
 const WHISPER_BUNDLE_URL =
-  "https://github.com/wxmpro/iina-sub/releases/download/v1.4.0/" +
+  "https://github.com/wxmpro/iina-sub/releases/download/v1.4.2/" +
   "iina-sub-whisper-macos.zip";
 
 /** The sum of that file. A file that does not match is thrown away. */
 const WHISPER_BUNDLE_SHA256 =
-  "ccbd18ec6b15d518028fca9ccc07ccdf17d71eb9d25d5718b3a76f2e1efab84d";
+  "432b84c64fed45c4515caaaab49a44266e85d3ac42c422d8c6bfeb6eae815bd9";
 
 /** The release of whisper.cpp that the library in that file belongs to. */
 const WHISPER_RELEASE = "b5454";
@@ -338,7 +376,9 @@ const whisperCpp = {
 
     let res = null;
     try {
-      res = await utils.exec(config.whisperPath, whisperArgs);
+      // A part of a file is a minute of audio at most, so a run that takes
+      // longer than this is not making progress any more.
+      res = await runWithLimit(config.whisperPath, whisperArgs, 15 * 60 * 1000);
     } catch (e) {
       await remove(wavPath);
       throw new Error("The speech recognition model could not be started: " + e);

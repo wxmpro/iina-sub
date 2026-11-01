@@ -198,6 +198,11 @@ int main(int argc, char ** argv) {
             outputBase = next("-of");
         } else if (arg == "-t" || arg == "--threads") {
             threads = atoi(next("-t").c_str());
+        } else if (arg == "-osrt" || arg == "--output-srt") {
+            // The program writes a SubRip file and nothing else, so the
+            // format the caller asks for is the one it gets. The option is
+            // accepted so that the same command line works for this program
+            // and for the one of whisper.cpp.
         } else if (arg == "-np" || arg == "--no-prints") {
             show_progress = false;
         } else if (arg == "-pp" || arg == "--print-progress") {
