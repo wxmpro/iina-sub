@@ -47,6 +47,18 @@ jobs:
           print("the two helpers are the same")
           PY
 
+      - name: Check that the speech recognition program still compiles
+        run: |
+          set -euo pipefail
+          # The bundle is built the way the release builds it, so a change in
+          # the sources that does not compile is caught here and not by a
+          # user whose machine has no Homebrew.
+          bash scripts/build-whisper.sh "$RUNNER_TEMP/whisper"
+          cd "$RUNNER_TEMP/whisper"
+          unzip -q iina-sub-whisper-macos.zip -d unpacked
+          ./unpacked/whisper-cli --help > /dev/null
+          echo "the program builds and runs"
+
       - name: Check that the helper still compiles
         run: |
           set -euo pipefail
