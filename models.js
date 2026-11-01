@@ -18,6 +18,37 @@ const sha256Of = srt.sha256OfFile;
 
 const BASE_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
 
+/**
+ * A mirror that a machine in China can usually reach without a proxy.
+ *
+ * ModelScope mirrors the collection of whisper.cpp. Two repositories of it
+ * hold the models of this catalogue; the files that were fetched from them
+ * are byte-identical to the ones the upstream repository publishes, which is
+ * what the sum check below is for. A mirror is only ever asked when the
+ * upstream address cannot be reached.
+ */
+const MIRRORS = [
+  {
+    name: "ModelScope",
+    url: (model) =>
+      "https://www.modelscope.cn/models/" +
+      (MIRROR_REPOS[model] || "cjc1887415157/whisper.cpp") +
+      "/resolve/master/" +
+      model,
+  },
+];
+
+/**
+ * Which mirror repository holds which model.
+ *
+ * Every model is checked against the same published sum whatever the source,
+ * so a mirror that serves anything else is caught by the check that follows
+ * and not by this table.
+ */
+const MIRROR_REPOS = {
+  "ggml-large-v3-turbo-q5_0.bin": "OllmOne/whisper.cpp",
+};
+
 const MODELS = [
   {
     name: "ggml-tiny.bin",
@@ -186,17 +217,38 @@ async function download(modelName, onProgress) {
     curlArgs.push("--proxy", proxy);
   }
 
-  curlArgs.push("-o", partial, BASE_URL + meta.name);
+  // The upstream address first, and the mirrors after it when it cannot be
+  // reached. The first file that passes the check below is kept; everything
+  // else is thrown away.
+  const sources = [BASE_URL + meta.name].concat(MIRRORS.map((m) => m.url(meta.name)));
+  let res = null;
+  let lastError = null;
+  for (const source of sources) {
+    if (partial !== null && file.exists(partial)) {
+      try {
+        file.delete(partial);
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    onProgress({
+      phase: "download",
+      percent: 0,
+      message: "Downloading " + meta.label + (source === sources[0] ? "" : " from a mirror"),
+    });
+    const attempt = curlArgs.concat(["-o", partial, source]);
+    res = await utils.exec("/usr/bin/curl", attempt);
+    if (res.status === 0) break;
+    lastError = res;
+  }
 
-  const res = await utils.exec("/usr/bin/curl", curlArgs);
-
-  if (res.status !== 0) {
+  if (!res || res.status !== 0) {
     try {
       file.delete(partial);
     } catch (e) {
       /* ignore */
     }
-    throw new Error(networkFailure(res.status, res.stderr, "model"));
+    throw new Error(networkFailure(res ? res.status : -1, lastError ? lastError.stderr : "", "model"));
   }
 
   // The size is the cheap check, the sum is the one that means something. A
@@ -277,11 +329,12 @@ function networkFailure(status, stderr, what) {
   return (
     "The " +
     what +
-    " could not be downloaded, because the server could not be reached.\n\n" +
-    "This is what happens on a network that blocks the release pages. " +
-    "Open the settings of the plugin (Preferences → Plugins → iina-sub), " +
-    "type the address of a proxy into the field Proxy — for example " +
-    "http://127.0.0.1:7890 — and try again.\n\n" +
+    " could not be downloaded, because none of the servers could be reached.\n\n" +
+    "This happens on a network that blocks the release pages. A mirror " +
+    "inside China was tried as well. Either try again later, or open the " +
+    "settings of the plugin (Preferences → Plugins → iina-sub) and type the " +
+    "address of a proxy into the field Proxy — for example " +
+    "http://127.0.0.1:7890.\n\n" +
     "The program tried: " +
     detail
   );

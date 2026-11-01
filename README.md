@@ -154,14 +154,21 @@ the transcripts the plugin has kept.
 
 ### The first run
 
-> **A note about the download speed.** The plugin fetches two things from
-> GitHub: its own copy of the speech recognition program (about 4 MB) and,
-> when you pick one, a model (the recommended one is 547 MB). GitHub is slow
-> or unreachable from some networks, mainland China among them. If the
-> download stalls, set a proxy in the plugin settings (`Preferences →
-> Plugins → iina-sub → Proxy`, for example `http://127.0.0.1:7890`) and try
-> again. Nothing else in the plugin needs the network: after the program and
-> the model are there, transcription works offline.
+> **A note about the download speed, and about networks in China.** The
+> plugin fetches two things from the internet: its own copy of the speech
+> recognition program (about 4 MB, from this repository) and, when you pick
+> one, a model (the recommended one is 547 MB).
+>
+> A model that cannot be fetched from the upstream address is fetched from a
+> mirror in China on its own, so no proxy is needed for the models. The
+> mirror is checked against the same published sums, so nothing it can serve
+> is any different from what the upstream serves.
+>
+> The small program comes from GitHub, and on a network where GitHub itself
+> is blocked the fetch can fail. When it does, the plugin names the proxy
+> setting. `Preferences → Plugins → iina-sub → Proxy`, for example
+> `http://127.0.0.1:7890`. Nothing else in the plugin needs the network:
+> after the program and the model are there, transcription works offline.
 
 
 The plugin needs two things that it does not carry: the speech recognition
