@@ -1195,9 +1195,15 @@ function pushModels() {
  * Whether the offer to fetch a model was made in this launch.
  *
  * The offer is made once. A user who said no is not asked again until the
- * player is started again.
+ * player is started again. The program and the model each have a flag of
+ * their own, because a user may need both and each is fetched on its own.
  */
-let setupOffered = false;
+let modelOfferMade = false;
+
+/**
+ * Whether the offer to fetch the speech recognition program was made.
+ */
+let engineOfferMade = false;
 
 /**
  * Make sure the speech recognition program is ready.
@@ -1212,8 +1218,8 @@ async function offerEngineSetup(mediaPath, config) {
   if (config.engineId !== "whisper-cpp") {
     // Another engine was chosen on purpose. Its program is installed by the
     // user, so the settings have to say where it is.
-    if (!setupOffered) {
-      setupOffered = true;
+    if (!engineOfferMade) {
+      engineOfferMade = true;
       try {
         validateConfig(config);
       } catch (e) {
@@ -1237,7 +1243,7 @@ async function offerEngineSetup(mediaPath, config) {
     return true;
   }
 
-  if (setupOffered) {
+  if (engineOfferMade) {
     pushStatus({
       phase: "idle",
       message: "The speech recognition program is missing",
@@ -1247,7 +1253,7 @@ async function offerEngineSetup(mediaPath, config) {
     });
     return false;
   }
-  setupOffered = true;
+  engineOfferMade = true;
 
   const confirmed = utils.ask(
     "iina-sub\n\nSpeech recognition needs a program. The plugin can fetch " +
@@ -1294,7 +1300,7 @@ async function offerEngineSetup(mediaPath, config) {
  * When it is fetched, the video that was opened is transcribed right away.
  */
 async function offerModelDownload(mediaPath) {
-  if (setupOffered) {
+  if (modelOfferMade) {
     pushStatus({
       phase: "idle",
       message: "No model yet",
@@ -1304,7 +1310,7 @@ async function offerModelDownload(mediaPath) {
     });
     return;
   }
-  setupOffered = true;
+  modelOfferMade = true;
 
   const recommended = models.MODELS.find((m) => m.recommended) || models.MODELS[0];
   const confirmed = utils.ask(
