@@ -61,25 +61,36 @@ your disk.**
 
 - macOS 13 or newer
 - [IINA](https://iina.io/) 1.3 or newer
-- A speech recognition engine and a model, see below
+- A speech recognition engine and a model. The plugin fetches both on the
+  first run, see below
 - The Xcode command line tools (`xcode-select --install`), so the plugin can
   build its own audio decoder on first use
 
-### whisper.cpp (recommended)
+### The engine
 
-```bash
-brew install whisper.cpp
-```
+The plugin needs the `whisper-cli` program of whisper.cpp. There are two ways
+to get it, and the plugin asks which one to use on the first run:
 
-Then download a model, for example:
+- **Let the plugin fetch it.** About 4 MB, once. The plugin downloads it from
+  the release page of this repository, checks it against a fixed SHA-256 sum,
+  and keeps it in its own folder. Nothing is downloaded when Homebrew has
+  whisper.cpp already.
+- **Install it with Homebrew**, which is what the button in the sidebar tab
+  mentions:
+
+  ```bash
+  brew install whisper.cpp
+  ```
+
+A model is needed as well. The plugin offers to fetch the recommended one on
+the first run, and every model of the collection is a button in the sidebar
+tab. A model can also be fetched by hand:
 
 ```bash
 mkdir -p ~/iina-asr/models
 curl -L -o ~/iina-asr/models/ggml-large-v3-q5_0.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin
 ```
-
-Or use the **Download Model…** button in the sidebar tab of the plugin.
 
 #### Which model should I use?
 

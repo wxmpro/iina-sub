@@ -51,25 +51,32 @@
 
 - macOS 13 或更高
 - [IINA](https://iina.io/) 1.3 或更高
-- 一个语音识别引擎和一个模型，见下文
+- 一个语音识别引擎和一个模型。插件会在第一次运行时把两样都取来，见下文
 - Xcode 命令行工具（`xcode-select --install`），插件第一次使用时要自己编译
   音频解码器
 
-### whisper.cpp（推荐）
+### 识别引擎
 
-```bash
-brew install whisper.cpp
-```
+插件需要 whisper.cpp 的 `whisper-cli` 程序。有两种获取方式，插件在第一次
+运行时会让用户选：
 
-然后下载一个模型，例如：
+- **让插件自己取**。约 4 MB，只下一次。插件从本仓库的发布页下载，先核对
+  固定的 SHA-256 校验和，再放进自己的目录。如果 Homebrew 已经装了
+  whisper.cpp，就什么都不下载。
+- **用 Homebrew 装**，也就是侧边栏按钮里提到的方式：
+
+  ```bash
+  brew install whisper.cpp
+  ```
+
+还需要一个模型。第一次运行时插件会问要不要下载推荐的那个，模型目录里的每个
+模型在侧边栏里都是一个按钮。也可以手动下载：
 
 ```bash
 mkdir -p ~/iina-asr/models
 curl -L -o ~/iina-asr/models/ggml-large-v3-q5_0.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin
 ```
-
-也可以直接用插件侧边栏标签里的 **Download Model…** 按钮。
 
 #### 该用哪个模型？
 
