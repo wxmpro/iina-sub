@@ -54,6 +54,9 @@ your disk.**
 - **Fully offline.** The audio never leaves the machine. The only thing that
   ever reaches the network is the model download, and that happens only when
   you ask for it.
+- **Speaks your language.** The menu, the messages and the sidebar are in
+  Chinese when your system is, and in English otherwise. The setting
+  "Language of the plugin" in the preferences has the last word.
 
 ---
 
@@ -146,11 +149,15 @@ appear as soon as the first chunk is done.
 | Transcribe All Videos in This Folder | | Transcribe every video next to the current one |
 | Export Subtitles Next to the Video | <kbd>Alt</kbd>+<kbd>E</kbd> | Write `<name>.srt` next to the video |
 
+The sidebar tab of the plugin has a button for each model of the collection,
+a button that removes the transcripts the plugin has kept, and a button that
+removes the models — a model is a few hundred megabytes, and the player
+keeps the data folder of a plugin when the plugin is removed.
+
 The player shows five entries of a plugin menu at most and puts the rest
 behind a "More…" item. The sidebar tab of the plugin shows the progress of the
 run, the files that were transcribed and a short explanation of every menu
-entry. It also has a button that fetches a model and a button that removes
-the transcripts the plugin has kept.
+entry.
 
 ### The first run
 
@@ -214,11 +221,34 @@ is not complete, and the plugin asks before it writes one.
 | Engine path | *(empty)* | Path to the mlx-whisper binary, or the custom command |
 | Model file | *(empty)* | Path to the `.bin` model |
 | Proxy | *(empty)* | Proxy for the model download, for example `http://127.0.0.1:7890` |
-| Language | `zh` | ISO code, or `auto` to detect it |
+| Language | `zh` | ISO code of the speech, or `auto` to detect it |
+| Language of the plugin | `auto` | The language of the menu and the messages: the one of the system, `zh` or `en` |
 | Chunk length | `30` | Seconds per chunk. Longer chunks give the model more context |
 | Overlap | `2` | Extra audio decoded after each chunk so sentences are not cut in half |
 | Transcribe automatically when a video is opened | on | Turn this off to only transcribe when you ask for it |
 | Load the cached subtitles when a video is opened | on | Load the transcript when a video is opened |
+
+---
+
+## Removing the plugin
+
+The plugin itself lives in the folder of the player and goes away with it.
+The data does not: the player keeps the data folder of a plugin when the
+plugin is removed, and that folder holds the model — a few hundred
+megabytes — and the transcripts.
+
+Two ways to get rid of it:
+
+- **Before you remove the plugin**, open the sidebar tab of the plugin and
+  press "Remove the Downloaded Models…". The models are deleted, the
+  transcripts are kept, because they are small and they are your work.
+- **After you removed the plugin**, the folder is still there:
+
+  ```bash
+  rm -rf ~/Library/Application\ Support/iina/plugins/.data/io.github.xinmin.iina-sub
+  ```
+
+  The transcripts and the models are in it, and nothing else of yours is.
 
 ---
 
@@ -343,6 +373,7 @@ plugin carries it. The two have to be the same, and the build checks that.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the way the code is put together
 and for the list of things to try after a change.
+[TESTING.md](TESTING.md) lists every test case and what it checks.
 
 ---
 

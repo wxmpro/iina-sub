@@ -44,6 +44,8 @@
   时间和最近几次转写的记录。
 - **全程离线。** 音频一步都不离开你的机器。唯一会碰到网络的只有模型下载，
   而且只在你主动要求时才会发生。
+- **界面说你的语言。** 系统是中文就用中文，是英文就用英文。偏好设置里的
+  「插件界面语言」说了算。
 
 ---
 
@@ -131,8 +133,9 @@ open dist/io.github.xinmin.iina-sub.iinaplgz
 | Cancel Transcription | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | 停掉正在进行的转写 |
 
 播放器最多显示插件菜单的前 5 项，其余收进「更多…」。插件的侧边栏标签里
-显示转写进度、已转写的文件，以及每个菜单项的简短说明，还有下载模型的按钮，
-以及清除已保存转写稿的按钮。
+显示转写进度、已转写的文件，以及每个菜单项的简短说明。侧边栏里还有每个
+模型的下载按钮、清除已保存转写稿的按钮，以及删除已下载模型的按钮——一个
+模型有几百 MB，而播放器在移除插件时会留下插件的数据目录。
 
 ### 第一次使用
 
@@ -186,11 +189,31 @@ brew install whisper.cpp
 | Engine path | *(空)* | mlx-whisper 的路径，或自定义命令 |
 | Model file | *(空)* | `.bin` 模型的路径 |
 | Proxy | *(空)* | 下载模型时用的代理，例如 `http://127.0.0.1:7890` |
-| Language | `zh` | ISO 语言代码，或 `auto` 自动识别 |
+| Language | `zh` | 语音的 ISO 语言代码，或 `auto` 自动识别 |
+| Language of the plugin | `auto` | 菜单和提示的语言：跟系统一致、`zh` 或 `en` |
 | Chunk length | `30` | 每块多少秒。块越长，模型能拿到的上下文越多 |
 | Overlap | `2` | 每块之后多解一点音频，句子才不会被拦腰截断 |
 | Transcribe automatically when a video is opened | 开 | 关掉后只有你主动要求才转写 |
 | Load the cached subtitles when a video is opened | 开 | 打开视频时加载已有转写稿 |
+
+---
+
+## 卸载插件
+
+插件本体放在播放器的插件目录里，卸载时一起没了。数据不会没：播放器移除
+插件时会保留它的数据目录，里面是模型（有几百 MB）和转写稿。
+
+两种清理方式：
+
+- **卸载之前**，打开插件的侧边栏标签，按「删除已下载的模型…」。模型会被
+  删掉，转写稿留着——它们很小，而且是你的劳动成果。
+- **卸载之后**，那个目录还在：
+
+  ```bash
+  rm -rf ~/Library/Application\ Support/iina/plugins/.data/io.github.xinmin.iina-sub
+  ```
+
+  转写稿和模型都在里面，没有你的别的东西。
 
 ---
 
@@ -288,6 +311,7 @@ bash scripts/package.sh
 嵌着的是插件随身携带的那份。两份必须一模一样，打包时会检查这一点。
 
 代码是怎么组织的、改完之后该验证哪些地方，见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+每个测试用例及其覆盖的内容，见 [TESTING.md](TESTING.md)。
 
 ---
 
