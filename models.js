@@ -188,7 +188,7 @@ async function download(modelName, onProgress) {
     }
   }
 
-  onProgress({ phase: "download", percent: 0, message: "Downloading " + meta.label });
+  onProgress({ phase: "download", percent: 0, message: "Downloading {0}", detail: meta.label });
 
   const curlArgs = [
     // The settings of the user are not read. The player starts a program
@@ -234,7 +234,8 @@ async function download(modelName, onProgress) {
     onProgress({
       phase: "download",
       percent: 0,
-      message: "Downloading " + meta.label + (source === sources[0] ? "" : " from a mirror"),
+      message: source === sources[0] ? "Downloading {0}" : "Downloading {0} from a mirror",
+      detail: meta.label,
     });
     const attempt = curlArgs.concat(["-o", partial, source]);
     res = await utils.exec("/usr/bin/curl", attempt);
@@ -307,7 +308,7 @@ async function download(modelName, onProgress) {
     throw new Error("The model could not be put into place: " + e);
   }
 
-  onProgress({ phase: "done", percent: 100, message: meta.label + " is ready" });
+  onProgress({ phase: "done", percent: 100, message: "{0} is ready", detail: meta.label });
   return target;
 }
 

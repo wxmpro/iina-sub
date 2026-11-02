@@ -37,14 +37,15 @@
       padding: 1px 4px;
       border-radius: 3px;
     }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
-  <h2>iina-sub Settings</h2>
+  <h2><span class="en">iina-sub Settings</span><span class="zh" hidden>iina-sub 设置</span></h2>
 
-  <h3>Engine</h3>
+  <h3><span class="en">Engine</span><span class="zh" hidden>引擎</span></h3>
   <div class="field">
-    <span class="name">Speech recognition engine</span>
+    <span class="name"><span class="en">Speech recognition engine</span><span class="zh" hidden>语音识别引擎</span></span>
     <label class="radio">
       <input type="radio" data-pref-key="engineId" name="engineId" value="whisper-cpp">
       <span>whisper.cpp</span>
@@ -55,97 +56,171 @@
     </label>
     <label class="radio">
       <input type="radio" data-pref-key="engineId" name="engineId" value="custom">
-      <span>Custom command</span>
+      <span class="en">Custom command</span><span class="zh" hidden>自定义命令</span>
     </label>
     <p class="help">
-      whisper.cpp is the default and is packaged by Homebrew as
+      <span class="en">whisper.cpp is the default and is packaged by Homebrew as
       <code>brew install whisper.cpp</code>. mlx-whisper uses the Apple Neural
       Engine. Custom command runs any local tool that turns a WAV file into an
-      SRT file.
+      SRT file.</span>
+      <span class="zh" hidden>whisper.cpp 是默认引擎，Homebrew 用
+      <code>brew install whisper.cpp</code> 安装。mlx-whisper 使用 Apple 神经网络引擎。
+      自定义命令可运行任何能把 WAV 文件转成 SRT 文件的本地工具。</span>
     </p>
   </div>
   <div class="field">
-    <label for="whisper">whisper-cli path</label>
+    <label for="whisper"><span class="en">whisper-cli path</span><span class="zh" hidden>whisper-cli 路径</span></label>
     <input id="whisper" type="text" data-pref-key="whisperPath" spellcheck="false">
-    <p class="help">Used by the whisper.cpp engine.</p>
+    <p class="help"><span class="en">Used by the whisper.cpp engine.</span><span class="zh" hidden>whisper.cpp 引擎使用该路径。</span></p>
   </div>
   <div class="field">
-    <label for="enginePath">Engine path</label>
+    <label for="enginePath"><span class="en">Engine path</span><span class="zh" hidden>引擎路径</span></label>
     <input id="enginePath" type="text" data-pref-key="enginePath" spellcheck="false">
     <p class="help">
-      Path to the mlx-whisper executable, or the full command line for the
+      <span class="en">Path to the mlx-whisper executable, or the full command line for the
       custom engine. Placeholders: <code>{input}</code> <code>{audio}</code>
       <code>{output}</code> <code>{model}</code> <code>{language}</code>
-      <code>{start}</code> <code>{duration}</code>.
+      <code>{start}</code> <code>{duration}</code>.</span>
+      <span class="zh" hidden>mlx-whisper 可执行文件的路径，或自定义引擎的完整命令行。
+      可用占位符：<code>{input}</code> <code>{audio}</code>
+      <code>{output}</code> <code>{model}</code> <code>{language}</code>
+      <code>{start}</code> <code>{duration}</code>。</span>
     </p>
   </div>
 
-  <h3>Model</h3>
+  <h3><span class="en">Model</span><span class="zh" hidden>模型</span></h3>
   <div class="field">
-    <label for="model">Model file</label>
+    <label for="model"><span class="en">Model file</span><span class="zh" hidden>模型文件</span></label>
     <input id="model" type="text" data-pref-key="modelPath" spellcheck="false">
     <p class="help">
-      Path to a ggml model file, for example
+      <span class="en">Path to a ggml model file, for example
       <code>~/iina-asr/models/ggml-large-v3-q5_0.bin</code>. The button in the
-      sidebar tab of the plugin fetches one.
+      sidebar tab of the plugin fetches one.</span>
+      <span class="zh" hidden>ggml 模型文件的路径，例如
+      <code>~/iina-asr/models/ggml-large-v3-q5_0.bin</code>。也可以在插件的侧边栏中一键下载。</span>
     </p>
   </div>
   <div class="field">
-    <label for="proxy">Proxy for the model download</label>
+    <label for="proxy"><span class="en">Proxy for the model download</span><span class="zh" hidden>模型下载代理</span></label>
     <input id="proxy" type="text" data-pref-key="proxy" spellcheck="false">
     <p class="help">
-      Optional. For example <code>http://127.0.0.1:7890</code>. It is used
-      when a model is fetched, and for nothing else.
+      <span class="en">Optional. For example <code>http://127.0.0.1:7890</code>. It is used
+      when a model is fetched, and for nothing else.</span>
+      <span class="zh" hidden>可留空。例如 <code>http://127.0.0.1:7890</code>。仅在下载模型时使用。</span>
     </p>
   </div>
 
-  <h3>Audio</h3>
-  <p class="help">The audio is decoded with the media framework that macOS ships with, so no external decoder is needed.</p>
+  <h3><span class="en">Audio</span><span class="zh" hidden>音频</span></h3>
+  <p class="help"><span class="en">The audio is decoded with the media framework that macOS ships with, so no external decoder is needed.</span><span class="zh" hidden>音频使用 macOS 自带的媒体框架解码，无需任何外部程序。</span></p>
   <div class="field">
-    <label for="lang">Language</label>
+    <label for="lang"><span class="en">Language</span><span class="zh" hidden>语言</span></label>
     <input id="lang" type="text" data-pref-key="language" spellcheck="false">
     <p class="help">
-      ISO code such as <code>zh</code>, <code>en</code>, <code>ja</code>, or
+      <span class="en">ISO code such as <code>zh</code>, <code>en</code>, <code>ja</code>, or
       <code>auto</code> to detect it. English only models (<code>.en</code>)
-      ignore this setting.
+      ignore this setting.</span>
+      <span class="zh" hidden>ISO 代码，例如 <code>zh</code>、<code>en</code>、<code>ja</code>，
+      或用 <code>auto</code> 自动检测。仅支持英文的模型（<code>.en</code>）会忽略此项。</span>
     </p>
   </div>
 
-  <h3>Chunking</h3>
+  <h3><span class="en">Chunking</span><span class="zh" hidden>分段</span></h3>
   <div class="field">
-    <label for="chunk">Chunk length (seconds)</label>
+    <label for="chunk"><span class="en">Chunk length (seconds)</span><span class="zh" hidden>每段长度（秒）</span></label>
     <input id="chunk" type="number" min="10" max="300" step="5" data-type="int" data-pref-key="chunkSeconds">
     <p class="help">
-      The file is transcribed in chunks of this length so that subtitles appear
+      <span class="en">The file is transcribed in chunks of this length so that subtitles appear
       while the video is still playing. Longer chunks give the model more
-      context.
+      context.</span>
+      <span class="zh" hidden>文件按此长度分段转写，因此播放过程中就能看到字幕。分段越长，模型能获得的上下文越多。</span>
     </p>
   </div>
   <div class="field">
-    <label for="tail">Overlap (seconds)</label>
+    <label for="tail"><span class="en">Overlap (seconds)</span><span class="zh" hidden>重叠长度（秒）</span></label>
     <input id="tail" type="number" min="0" max="15" step="1" data-type="int" data-pref-key="tailSeconds">
     <p class="help">
-      Extra audio decoded after every chunk so the model hears the end of a
-      sentence. Cues that start inside the overlap are dropped.
+      <span class="en">Extra audio decoded after every chunk so the model hears the end of a
+      sentence. Cues that start inside the overlap are dropped.</span>
+      <span class="zh" hidden>每段之后额外解码一段音频，让模型能听到句子的结尾。起始于重叠区的字幕会被丢弃。</span>
     </p>
   </div>
 
-  <h3>Behaviour</h3>
+  <h3><span class="en">Behaviour</span><span class="zh" hidden>行为</span></h3>
   <label class="check">
     <input type="checkbox" data-pref-key="autoTranscribe" data-type="bool">
-    <span>Transcribe automatically when a video is opened</span>
+    <span class="en">Transcribe automatically when a video is opened</span><span class="zh" hidden>打开视频时自动转写</span>
   </label>
   <p class="help">
-    Subtitles then appear on their own, without touching the menu. A file
-    that has already been transcribed is loaded from the cache straight away.
+    <span class="en">Subtitles then appear on their own, without touching the menu. A file
+    that has already been transcribed is loaded from the cache straight away.</span>
+    <span class="zh" hidden>字幕会自动出现，无需操作菜单。已经转写过的文件会直接从缓存载入。</span>
   </p>
   <label class="check">
     <input type="checkbox" data-pref-key="autoLoad" data-type="bool">
-    <span>Load the cached subtitles when a video is opened</span>
+    <span class="en">Load the cached subtitles when a video is opened</span><span class="zh" hidden>打开视频时载入缓存的字幕</span>
   </label>
   <p class="help">
-    The transcript is kept in the plugin folder. Nothing is written next to
-    the video unless the export command is used.
+    <span class="en">The transcript is kept in the plugin folder. Nothing is written next to
+    the video unless the export command is used.</span>
+    <span class="zh" hidden>字幕保存在插件目录中。除非使用导出命令，视频旁边不会写入任何文件。</span>
   </p>
+
+  <h3><span class="en">Language</span><span class="zh" hidden>语言</span></h3>
+  <div class="field">
+    <span class="name"><span class="en">Language of the plugin</span><span class="zh" hidden>插件界面语言</span></span>
+    <label class="radio">
+      <input type="radio" data-pref-key="uiLanguage" name="uiLanguage" value="auto">
+      <span class="en">The same as the system</span><span class="zh" hidden>与系统一致</span>
+    </label>
+    <label class="radio">
+      <input type="radio" data-pref-key="uiLanguage" name="uiLanguage" value="zh">
+      <span>简体中文</span>
+    </label>
+    <label class="radio">
+      <input type="radio" data-pref-key="uiLanguage" name="uiLanguage" value="en">
+      <span>English</span>
+    </label>
+    <p class="help"><span class="en">The language of the menu, the messages and the sidebar. The speech recognition language is set above.</span><span class="zh" hidden>菜单、提示与侧边栏所使用的语言。语音识别所用的语言请在上方设置。</span></p>
+  </div>
+
+  <script>
+    // The page is written in both languages, and the one that is shown is
+    // chosen here. The setting of the plugin comes first, and the language
+    // of the system is used when the setting says "the same as the system".
+    (function () {
+      function show(locale) {
+        var zh = locale === "zh";
+        document.documentElement.lang = zh ? "zh-Hans" : "en";
+        var en = document.querySelectorAll(".en");
+        var zhs = document.querySelectorAll(".zh");
+        for (var i = 0; i < en.length; i++) en[i].hidden = zh;
+        for (var j = 0; j < zhs.length; j++) zhs[j].hidden = !zh;
+      }
+
+      function systemLocale() {
+        var language = (navigator.language || "").toLowerCase();
+        return language.indexOf("zh") === 0 ? "zh" : "en";
+      }
+
+      function fromSetting(value) {
+        var chosen = String(value === undefined || value === null ? "auto" : value).toLowerCase();
+        if (chosen === "zh" || chosen.indexOf("zh-") === 0) return "zh";
+        if (chosen === "en" || chosen.indexOf("en-") === 0) return "en";
+        return systemLocale();
+      }
+
+      show(systemLocale());
+      if (window.iina && window.iina.preferences) {
+        window.iina.preferences.get("uiLanguage", function (value) {
+          show(fromSetting(value));
+        });
+      }
+
+      // The page can be told which language to show. The player does that
+      // through the setting of the user; the hook is here so that the page
+      // can also be looked at on its own.
+      window.iinaSubSetLocale = show;
+    })();
+  </script>
 </body>
 </html>

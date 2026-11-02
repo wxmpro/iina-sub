@@ -98,13 +98,14 @@
       border-radius: 3px;
       padding: 0 3px;
     }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <h1>iina-sub</h1>
 
-  <div class="phase" id="phase">Idle</div>
-  <div class="message" id="message">Ready</div>
+  <div class="phase" id="phase"><span class="en">Idle</span><span class="zh" hidden>空闲</span></div>
+  <div class="message" id="message"><span class="en">Ready</span><span class="zh" hidden>就绪</span></div>
   <div class="detail" id="detail"></div>
   <div class="bar"><div id="bar"></div></div>
   <div class="meta">
@@ -112,31 +113,32 @@
     <span id="elapsed"></span>
   </div>
 
-  <h2>Models</h2>
+  <h2><span class="en">Models</span><span class="zh" hidden>模型</span></h2>
   <div id="models" class="models"></div>
-  <p class="empty" id="modelsEmpty">Loading the models…</p>
+  <p class="empty" id="modelsEmpty"><span class="en">Loading the models…</span><span class="zh" hidden>正在载入模型…</span></p>
 
-  <h2>Actions</h2>
+  <h2><span class="en">Actions</span><span class="zh" hidden>操作</span></h2>
   <div class="actions">
-    <button id="clearTranscripts" type="button">Clear Saved Transcripts…</button>
+    <button id="clearTranscripts" type="button"><span class="en">Clear Saved Transcripts…</span><span class="zh" hidden>清除已保存的字幕…</span></button>
+    <button id="removeModels" type="button"><span class="en">Remove the Downloaded Models…</span><span class="zh" hidden>删除已下载的模型…</span></button>
   </div>
 
-  <h2>Activity</h2>
+  <h2><span class="en">Activity</span><span class="zh" hidden>运行记录</span></h2>
   <ul id="activity"></ul>
-  <p class="empty" id="empty">Nothing yet.</p>
+  <p class="empty" id="empty"><span class="en">Nothing yet.</span><span class="zh" hidden>暂无记录。</span></p>
 
-  <h2>The menu entries</h2>
+  <h2><span class="en">The menu entries</span><span class="zh" hidden>菜单项</span></h2>
   <dl>
-    <dt>Generate Subtitles Now <kbd>⌥S</kbd></dt>
-    <dd>Transcribe the video that is playing.</dd>
-    <dt>Export Subtitles Next to the Video <kbd>⌥E</kbd></dt>
-    <dd>Write the transcript next to the video, named after it.</dd>
-    <dt>Transcribe All Videos in This Folder</dt>
-    <dd>Transcribe every video file next to the current one.</dd>
-    <dt>Regenerate Subtitles</dt>
-    <dd>Throw the transcript away and transcribe again.</dd>
-    <dt>Cancel Transcription <kbd>⌥⇧S</kbd></dt>
-    <dd>Stop the run that is in progress.</dd>
+    <dt><span class="en">Generate Subtitles Now <kbd>⌥S</kbd></span><span class="zh" hidden>立即生成字幕 <kbd>⌥S</kbd></span></dt>
+    <dd><span class="en">Transcribe the video that is playing.</span><span class="zh" hidden>转写正在播放的视频。</span></dd>
+    <dt><span class="en">Export Subtitles Next to the Video <kbd>⌥E</kbd></span><span class="zh" hidden>把字幕导出到视频旁 <kbd>⌥E</kbd></span></dt>
+    <dd><span class="en">Write the transcript next to the video, named after it.</span><span class="zh" hidden>以视频的名字命名，把字幕写到视频旁边。</span></dd>
+    <dt><span class="en">Transcribe All Videos in This Folder</span><span class="zh" hidden>转写本文件夹中的所有视频</span></dt>
+    <dd><span class="en">Transcribe every video file next to the current one.</span><span class="zh" hidden>转写当前视频旁边的每一个视频文件。</span></dd>
+    <dt><span class="en">Regenerate Subtitles</span><span class="zh" hidden>重新生成字幕</span></dt>
+    <dd><span class="en">Throw the transcript away and transcribe again.</span><span class="zh" hidden>丢弃已有字幕，重新转写。</span></dd>
+    <dt><span class="en">Cancel Transcription <kbd>⌥⇧S</kbd></span><span class="zh" hidden>取消转写 <kbd>⌥⇧S</kbd></span></dt>
+    <dd><span class="en">Stop the run that is in progress.</span><span class="zh" hidden>停止正在进行的转写。</span></dd>
   </dl>
 
   <script>
@@ -151,6 +153,27 @@
     const modelsEl = document.getElementById("models");
     const modelsEmptyEl = document.getElementById("modelsEmpty");
     const clearEl = document.getElementById("clearTranscripts");
+    const removeModelsEl = document.getElementById("removeModels");
+
+    // The page is written in both languages. The plugin tells the page which
+    // one of them to show; until it does, the language of the system is used.
+    let locale = "en";
+
+    function setLocale(value) {
+      const zh = value === "zh";
+      locale = zh ? "zh" : "en";
+      document.documentElement.lang = zh ? "zh-Hans" : "en";
+      const en = document.querySelectorAll(".en");
+      const zhs = document.querySelectorAll(".zh");
+      for (let i = 0; i < en.length; i++) en[i].hidden = zh;
+      for (let j = 0; j < zhs.length; j++) zhs[j].hidden = !zh;
+      if (lastPhase) showPhase(lastPhase);
+    }
+
+    function systemLocale() {
+      const language = (navigator.language || "").toLowerCase();
+      return language.indexOf("zh") === 0 ? "zh" : "en";
+    }
 
     function formatDuration(seconds) {
       if (!isFinite(seconds) || seconds <= 0) return "";
@@ -177,21 +200,29 @@
 
     // The name of the phase is turned into something that can be read.
     const PHASES = {
-      idle: "Ready",
-      starting: "Starting",
-      transcribing: "Transcribing",
-      cached: "Loaded from the cache",
-      done: "Done",
-      partial: "Done with gaps",
-      cancelled: "Cancelled",
-      error: "Failed",
-      download: "Downloading",
+      idle: ["Ready", "就绪"],
+      starting: ["Starting", "开始中"],
+      transcribing: ["Transcribing", "正在转写"],
+      cached: ["Loaded from the cache", "来自缓存"],
+      done: ["Done", "完成"],
+      partial: ["Done with gaps", "完成，但有缺失"],
+      cancelled: ["Cancelled", "已取消"],
+      error: ["Failed", "失败"],
+      download: ["Downloading", "正在下载"],
     };
+
+    let lastPhase = "";
+
+    function showPhase(phase) {
+      const entry = PHASES[phase];
+      phaseEl.textContent = entry ? entry[locale === "zh" ? 1 : 0] : phase;
+    }
 
     function onStatus(payload) {
       if (!payload) return;
       const phase = payload.phase || "idle";
-      phaseEl.textContent = PHASES[phase] || phase;
+      lastPhase = phase;
+      showPhase(phase);
       messageEl.textContent = decodeText(payload.message);
       detailEl.textContent = decodeText(payload.detail);
       const percent = Math.max(0, Math.min(100, Number(payload.percent) || 0));
@@ -223,6 +254,7 @@
     // names the model, so nothing has to be typed.
     function onModels(payload) {
       const list = (payload && payload.models) || [];
+      const zh = locale === "zh";
       modelsEl.innerHTML = "";
       modelsEmptyEl.style.display = list.length ? "none" : "block";
       for (const model of list) {
@@ -232,10 +264,14 @@
         const name = document.createElement("span");
         name.className = "name";
         name.textContent =
-          model.label + (model.recommended ? " — recommended" : "") + (model.downloaded ? " — on the disk" : "");
+          model.label +
+          (model.recommended ? (zh ? " — 推荐" : " — recommended") : "") +
+          (model.downloaded ? (zh ? " — 已在本地" : " — on the disk") : "");
         const note = document.createElement("span");
         note.className = "note";
-        note.textContent = model.downloaded ? "Press to fetch it again" : model.note;
+        note.textContent = model.downloaded
+          ? (zh ? "点击可重新下载" : "Press to fetch it again")
+          : model.note;
         button.appendChild(name);
         button.appendChild(note);
         button.addEventListener("click", function () {
@@ -254,9 +290,27 @@
       }
     });
 
-    iina.onMessage("status", onStatus);
-    iina.onMessage("activity", onActivity);
-    iina.onMessage("models", onModels);
+    // And the last one removes the models, which are large and stay on the
+    // disk when the plugin is removed.
+    removeModelsEl.addEventListener("click", function () {
+      if (window.iina && window.iina.postMessage) {
+        window.iina.postMessage("removeModels", {});
+      }
+    });
+
+    setLocale(systemLocale());
+
+    // The page is opened by the player, which is what gives it the `iina`
+    // object. The page still works without it, so that it can be looked at
+    // on its own.
+    if (window.iina && window.iina.onMessage) {
+      iina.onMessage("status", onStatus);
+      iina.onMessage("activity", onActivity);
+      iina.onMessage("models", onModels);
+      iina.onMessage("locale", (payload) => {
+        if (payload && payload.locale) setLocale(payload.locale);
+      });
+    }
   </script>
 </body>
 </html>
