@@ -76,7 +76,126 @@ function findJsonFile(directory) {
 }
 
 /**
- * Run a program and give up waiting after a while.
+ * The text of the shell that starts a program and writes down its number.
+ *
+ * The shell puts a number into a file and then replaces itself with the
+ * program, so the number in the file is the number of the program itself and
+ * not the number of the shell. Every value travels as a parameter of the
+ * shell, so a name of a file can never become a command.
+ */
+const START_SCRIPT = 'echo $$ > "$1"; shift; exec "$@"';
+
+/**
+ * The longest time a program is given before it is stopped.
+ */
+const RUN_LIMIT_MS = 15 * 60 * 1000;
+
+/**
+ * A time written in a way that a person can read.
+ */
+function formatDuration(ms) {
+  if (ms < 60000) return Math.round(ms / 1000) + " seconds";
+  return Math.round(ms / 60000) + " minutes";
+}
+
+/**
+ * Where the number of the running program is written down.
+ */
+function pidFilePath() {
+  return utils.resolvePath("@tmp/iina-sub-" + Date.now() + "-" + Math.floor(Math.random() * 1000000) + ".pid");
+}
+
+/**
+ * Stop a program that is running.
+ *
+ * The number is read from the file the shell wrote it into. Only a plain
+ * number is used at all: `/bin/kill` reads a leading dash as the number of
+ * a signal, and the wrong signal would stop something else entirely.
+ *
+ * The program that is running is compared with the one that was started. A
+ * program that has finished in the meantime has given its number to another
+ * program, and that other program is not ours to stop.
+ */
+async function stopProcess(pidFile, command) {
+  let pid = "";
+  try {
+    pid = String(file.read(pidFile, {}) || "").trim();
+  } catch (e) {
+    return false;
+  }
+  if (!/^[1-9][0-9]{0,8}$/.test(pid)) return false;
+
+  let line = "";
+  try {
+    const ps = await utils.exec("/bin/ps", ["-p", pid, "-o", "command="]);
+    if (!ps || ps.status !== 0) return false;
+    line = String(ps.stdout || "").trim();
+  } catch (e) {
+    return false;
+  }
+  if (!line) return false;
+  if (line !== command && !line.startsWith(command + " ")) return false;
+
+  try {
+    const killed = await utils.exec("/bin/kill", ["-9", pid]);
+    return !!killed && killed.status === 0;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Run a program once and stop it when it takes too long.
+ *
+ * Giving up on the wait is not enough: the program has to be stopped as
+ * well. A speech recognition that hangs would keep the processor busy and
+ * keep the model open, and the parts of the file that come after it would
+ * wait for a machine that is already busy.
+ *
+ * Returns the same shape as `utils.exec`, with a `timedOut` flag on it.
+ */
+async function runOnce(command, args, limitMs) {
+  const pidFile = pidFilePath();
+  await remove(pidFile);
+
+  const running = utils.exec(
+    "/bin/sh",
+    ["-c", START_SCRIPT, "iina-sub", pidFile, command].concat(args)
+  );
+
+  let timer = null;
+  let stopping = null;
+  const limit = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      const message =
+        "The program did not finish within " +
+        formatDuration(limitMs) +
+        " and was stopped.";
+      resolve({ status: -1, stdout: "", stderr: message, timedOut: true });
+      // The program is stopped behind the answer, and the wait for the
+      // stop is kept: the file with the number of the program may not be
+      // removed before the number has been read out of it.
+      stopping = stopProcess(pidFile, command);
+    }, limitMs);
+  });
+
+  try {
+    return await Promise.race([running, limit]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+    if (stopping) {
+      try {
+        await stopping;
+      } catch (e) {
+        /* the program was not stopped, and there is nothing to do about it */
+      }
+    }
+    await remove(pidFile);
+  }
+}
+
+/**
+ * Run a program and stop it when it takes too long.
  *
  * The player has no way of stopping a program that it started, so a program
  * that never returns would hold the plugin for ever and every later request
@@ -84,33 +203,25 @@ function findJsonFile(directory) {
  * given a limit instead: a part of a file that cannot be recognised within
  * that limit is a part that failed.
  *
- * Returns the same shape as `utils.exec`.
+ * A program that was stopped is tried a second time, with a shorter limit.
+ * The first attempt can fail for a reason that has nothing to do with the
+ * file — a program that was still being written, a machine that was busy —
+ * and the second attempt is what saves the part of the file.
  */
-function runWithLimit(command, args, limitMs) {
-  const running = utils.exec(command, args);
-  let timer = null;
-  const limit = new Promise((resolve) => {
-    timer = setTimeout(() => {
-      resolve({
-        status: -1,
-        stdout: "",
-        stderr:
-          "The program did not finish within " +
-          Math.round(limitMs / 60000) +
-          " minutes and was given up on.",
-      });
-    }, limitMs);
-  });
-  return Promise.race([running, limit]).then(
-    (result) => {
-      if (timer !== null) clearTimeout(timer);
-      return result;
-    },
-    (error) => {
-      if (timer !== null) clearTimeout(timer);
-      throw error;
-    }
+async function runWithLimit(command, args, limitMs) {
+  const first = await runOnce(command, args, limitMs);
+  if (!first || !first.timedOut) return first;
+
+  const retryLimit = Math.max(1000, Math.round(limitMs / 2));
+  console.warn(
+    "iina-sub: the program was stopped after " +
+      formatDuration(limitMs) +
+      ", it is tried again with " +
+      formatDuration(retryLimit)
   );
+  const second = await runOnce(command, args, retryLimit);
+  if (second && !second.timedOut) return second;
+  return second || first;
 }
 
 /**
@@ -378,7 +489,7 @@ const whisperCpp = {
     try {
       // A part of a file is a minute of audio at most, so a run that takes
       // longer than this is not making progress any more.
-      res = await runWithLimit(config.whisperPath, whisperArgs, 15 * 60 * 1000);
+      res = await runWithLimit(config.whisperPath, whisperArgs, RUN_LIMIT_MS);
     } catch (e) {
       await remove(wavPath);
       throw new Error("The speech recognition model could not be started: " + e);
@@ -458,7 +569,9 @@ const mlxWhisper = {
 
     let res = null;
     try {
-      res = await utils.exec(config.enginePath, args);
+      // The program is stopped when it takes too long, in the same way as
+      // the program of whisper.cpp.
+      res = await runWithLimit(config.enginePath, args, RUN_LIMIT_MS);
     } catch (e) {
       await remove(wavPath);
       throw new Error("mlx-whisper could not be started: " + e);
@@ -653,6 +766,7 @@ module.exports = {
   getEngine,
   list,
   ENGINES,
+  runWithLimit,
   WHISPER_RELEASE,
   WHISPER_BUNDLE_URL,
   WHISPER_BUNDLE_SHA256,
