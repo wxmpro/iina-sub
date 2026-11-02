@@ -291,11 +291,20 @@ The setting is only used for Chinese. A text of Japanese is left alone,
 because the tables that turn Traditional into Simplified would change the
 Chinese characters of Japanese as well.
 
-The program that comes with the plugin knows the prompt. A program of an
-older build does not: the plugin sees that the option is not known, runs the
-file again without it, and does not try it again. The transcript is then
-written in the script the model chose, and the second half of the work still
-brings it into the script that was asked for.
+All three engines are told which script to write in:
+
+| Engine | How it is told |
+|---|---|
+| whisper.cpp | `--prompt` — the program that comes with the plugin knows it, and so does whisper.cpp since 1.5 |
+| mlx-whisper | `--initial_prompt` |
+| A custom command | the `{prompt}` placeholder |
+
+A program of an older build does not know the option: the plugin sees that
+the option is not known, runs the file again without it, and does not try it
+again. **The user is told about it** — the program is too old, and updating
+it is what makes the model write the script by itself. The transcript is
+correct either way, because the second half of the work brings it into the
+script that was asked for.
 
 The script is part of the fingerprint of a transcript, so changing it
 transcribes the file again. That is on purpose: the model writes another
@@ -354,12 +363,23 @@ The command may contain these placeholders:
 | `{language}` | The language code |
 | `{start}` | Start of the part, in seconds |
 | `{duration}` | Length of the part, in seconds |
+| `{prompt}` | A short text in the script the subtitles should be in — `简体中文` or `繁體中文` — and nothing when the script of the model is to be kept |
 
 For example, to use a hypothetical tool:
 
 ```
 my-asr --input {audio} --output {output} --model {model} --lang {language}
 ```
+
+A tool that takes a prompt gets one, and writes in that script by itself:
+
+```
+whisper-cli --prompt {prompt} -m {model} -f {audio} -l {language} -osrt -of {output}
+```
+
+A command that leaves `{prompt}` out still works: the model then writes the
+script it chooses, and the plugin brings the text into the script that was
+asked for afterwards.
 
 The command is called once per part of the file, and the times it writes
 have to be relative to the beginning of that part. Using `{audio}` is the

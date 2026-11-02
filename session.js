@@ -181,6 +181,19 @@ async function runJob(job) {
       // ones that do not, and for the few characters the model got wrong.
       script.applyToCues(cues, settings);
 
+      // The program is too old to be told which script to write in. The
+      // user is told about it, because the model writes the script by
+      // itself as long as the program is not updated.
+      if (!job.oldEngineWarned && engines.promptSupport() === "no") {
+        job.oldEngineWarned = true;
+        ui.osd("the speech recognition program is too old");
+        ui.logActivity(
+          "The speech recognition program does not know the option that tells it " +
+            "which script to write in. Update it and the model will write in the " +
+            "script you chose; until then the text is brought over afterwards."
+        );
+      }
+
       srt.mergeCues(job.cues, cues, 0);
       await publishCues(job);
 
@@ -298,6 +311,7 @@ function createJob(mediaPath, durationMs, settings, engine, options) {
     cues: [],
     cancelled: false,
     writeFailed: false,
+    oldEngineWarned: false,
     fingerprint: null,
     context: {
       config: settings,

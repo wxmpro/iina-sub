@@ -11,7 +11,7 @@ without a player. Two files hold them:
 
 | File | Cases | What it covers |
 |---|---|---|
-| `tests/run.js` | 92 | the behaviour of the plugin |
+| `tests/run.js` | 93 | the behaviour of the plugin |
 | `tests/security.js` | 24 | the ways a hostile file, a hostile setting or a hostile model could try to make the plugin do something it should not |
 
 ```bash
@@ -135,6 +135,7 @@ message of the assertion and the place it came from.
 | the whisper engine is told nothing when the script is to be kept | the program of the plugin is given nothing |
 | the whisper engine runs again without the prompt when the program does not know it | a build of whisper.cpp that is older than the prompt does not stop the run |
 | the complaint of a program that does not know an option is recognised | a failure that has nothing to do with the prompt is not one |
+| a program that knows the option is not complained about | the program is only complained about when it does not know the option |
 
 ### The clean up after the plugin is removed
 

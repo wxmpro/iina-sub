@@ -256,6 +256,18 @@ function unknownPromptOption(text) {
   );
 }
 
+/**
+ * Whether the engine can be told which script to write in.
+ *
+ * A build of whisper.cpp that is older than the prompt does not know the
+ * option, and the plugin runs the file again without it. The user is told
+ * that the program is too old, so that the model writes the script by
+ * itself only as long as the program is not updated.
+ */
+function promptSupport() {
+  return promptSupported ? "yes" : "no";
+}
+
 function shortMessage(text) {
   const lines = String(text || "")
     .split("\n")
@@ -822,6 +834,7 @@ module.exports = {
   getEngine,
   list,
   unknownPromptOption,
+  promptSupport,
   ENGINES,
   runWithLimit,
   WHISPER_RELEASE,
