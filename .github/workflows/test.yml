@@ -21,8 +21,10 @@ jobs:
         run: |
           set -euo pipefail
           archive="dist/io.github.xinmin.iina-sub.iinaplgz"
-          for file in Info.json main.js srt.js worker.js engines.js decoder.js \
-                      models.js pref.html sidebar.html README.md README.zh-CN.md LICENSE; do
+          for file in Info.json main.js i18n.js state.js config.js player.js cache.js ui.js \
+                      session.js setup.js commands.js srt.js worker.js engines.js \
+                      decoder.js models.js pref.html sidebar.html README.md \
+                      README.zh-CN.md TESTING.md LICENSE; do
             if ! unzip -Z1 "$archive" | grep -qx "$file"; then
               echo "::error::$file is missing from the package"
               exit 1

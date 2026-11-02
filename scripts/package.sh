@@ -23,6 +23,15 @@ rm -f "$ARCHIVE"
 # either part of the development or belongs to the release notes.
 FILES="Info.json
 main.js
+i18n.js
+state.js
+config.js
+player.js
+cache.js
+ui.js
+session.js
+setup.js
+commands.js
 srt.js
 worker.js
 engines.js
@@ -32,6 +41,7 @@ pref.html
 sidebar.html
 README.md
 README.zh-CN.md
+TESTING.md
 LICENSE"
 
 # The archive holds the plugin files flat, without a wrapping directory.
