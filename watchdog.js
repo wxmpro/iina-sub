@@ -30,15 +30,21 @@ const CHECK_INTERVAL_MS = 15000;
  * part of the plugin. The address is read out of it and nothing else is
  * taken for it.
  */
-function ownRoot() {
-  const stack = String(new Error().stack || "");
-  const match = stack.match(/(file:\/\/[^\s)]+?\.iinaplugin)\//);
+function rootFromStack(stack) {
+  const match = String(stack || "").match(/(file:\/\/[^\s)]+?\.iinaplugin)\//);
   if (!match) return "";
+  // The address of the file comes as an address of the web, and the folder
+  // of the plugin is a path on the disk.
+  const path = match[1].replace(/^file:\/\//, "");
   try {
-    return decodeURIComponent(match[1]);
+    return decodeURIComponent(path);
   } catch (e) {
     return "";
   }
+}
+
+function ownRoot() {
+  return rootFromStack(new Error().stack || "");
 }
 
 /**
@@ -138,4 +144,4 @@ function start() {
   return true;
 }
 
-module.exports = { start, ownRoot, identifierOf, dataFolderOf, check };
+module.exports = { start, ownRoot, rootFromStack, identifierOf, dataFolderOf, check };

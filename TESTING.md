@@ -11,7 +11,7 @@ without a player. Two files hold them:
 
 | File | Cases | What it covers |
 |---|---|---|
-| `tests/run.js` | 89 | the behaviour of the plugin |
+| `tests/run.js` | 90 | the behaviour of the plugin |
 | `tests/security.js` | 24 | the ways a hostile file, a hostile setting or a hostile model could try to make the plugin do something it should not |
 
 ```bash
@@ -138,6 +138,7 @@ message of the assertion and the place it came from.
 
 | Case | What it checks |
 |---|---|
+| the folder of the plugin is read out of the stack | the address of the file is a path on the disk, and not an address of the web |
 | the name of the plugin is read out of the folder of its code | the folder of the data belongs to this plugin |
 | the folder of the data has to be the one of this plugin | nothing else is ever removed |
 | the watch is not started when the folder of the plugin is unknown | a wrong answer can never lead to a deletion |
