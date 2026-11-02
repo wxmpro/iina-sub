@@ -74,6 +74,7 @@ const engines = require("./engines.js");
 const decoder = require("./decoder.js");
 const worker = require("./worker.js");
 const srt = require("./srt.js");
+const watchdog = require("./watchdog.js");
 
 // ---------------------------------------------------------------------------
 // The flow of a file that has been opened
@@ -255,6 +256,11 @@ event.on("mpv.end-file", () => {
 // ---------------------------------------------------------------------------
 
 buildMenu();
+
+// The plugin watches its own folder. When the folder is gone, the plugin
+// was removed, and the data of it goes with it: the models are hundreds of
+// megabytes, and nobody removes them by hand.
+watchdog.start();
 
 // The language of the plugin is worked out now. The menu is built again
 // when it is not the language that the menu was built with, so that the

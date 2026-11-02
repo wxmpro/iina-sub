@@ -60,6 +60,11 @@ your disk.**
 - **Fully offline.** The audio never leaves the machine. The only thing that
   ever reaches the network is the model download, and that happens only when
   you ask for it.
+- **The script of the subtitles is yours to choose.** Whisper picks Simplified
+  or Traditional Chinese by itself, and it may change its mind in the middle
+  of a file. The setting "The script of the Chinese subtitles" tells the
+  model which one to write in, and what it wrote anyway is brought over
+  afterwards.
 - **Speaks your language.** The menu, the messages and the sidebar are in
   Chinese when your system is, and in English otherwise. The setting
   "Language of the plugin" in the preferences has the last word.
@@ -93,7 +98,21 @@ to get it, and the plugin asks which one to use on the first run:
 
 A model is needed as well. The plugin offers to fetch the recommended one on
 the first run, and every model of the collection is a button in the sidebar
-tab. A model can also be fetched by hand:
+tab.
+
+The models are fetched from the repository of the upstream project. When that
+address cannot be reached — which is the usual case for a machine in China —
+two mirrors are tried: `hf-mirror.com`, a mirror of Hugging Face that has
+been around for years, and the collection of ModelScope. Whatever the source
+is, the file is checked against the SHA-256 sum that the upstream repository
+publishes before it is put into place, so a mirror cannot hand over a file
+that was changed on the way. The sidebar shows which source the file came
+from.
+
+No mirror can promise that it will be there tomorrow, and the repository of a
+person on ModelScope is the least dependable of them. That is why there is
+more than one, why the upstream address is always tried first, and why the
+model can also be fetched by hand:
 
 ```bash
 mkdir -p ~/iina-asr/models
@@ -116,6 +135,22 @@ transcribe anything as English, so they are not useful for other languages.
 
 Measured on an M1 Pro with `large-v3-q5_0`: roughly 4.7 times faster than real
 time, so a one hour lecture takes about thirteen minutes.
+
+#### Intel Macs
+
+The plugin itself runs on an Intel Mac — it is plain JavaScript and the audio
+decoder is built for both architectures. The speech recognition is a different
+matter: whisper.cpp uses the GPU of the machine, and on an Intel Mac that GPU
+is far weaker than the one of an Apple Silicon machine. Expect a transcript
+that takes several times longer than the length of the video, and expect the
+model `large-v3-turbo` to be the practical choice there.
+
+The end-to-end run of this plugin was done on an Apple Silicon machine only.
+Nothing in the code depends on the architecture — the program that comes with
+the plugin is built for both `arm64` and `x86_64` — but the numbers above are
+the numbers of an M1 Pro, and an Intel Mac has not been measured. If
+something does not work on an Intel Mac, please open an issue and say which
+machine you have.
 
 ---
 
@@ -269,18 +304,33 @@ The data does not: the player keeps the data folder of a plugin when the
 plugin is removed, and that folder holds the model — a few hundred
 megabytes — and the transcripts.
 
-Two ways to get rid of it:
+The plugin watches its own folder while it runs. When the folder is gone, the
+plugin was removed, and the data goes with it: the models, the transcripts
+and the audio of the chunks are deleted, and the disk is free again. Nothing
+of yours is in that folder, and the plugin only removes it when the folder of
+the plugin was really gone.
 
-- **Before you remove the plugin**, open the sidebar tab of the plugin and
-  press "Remove the Downloaded Models…". The models are deleted, the
-  transcripts are kept, because they are small and they are your work.
-- **After you removed the plugin**, the folder is still there:
+The removal takes a moment. The plugin looks at its folder every fifteen
+seconds and waits for a second look before it removes anything, so a plugin
+that is removed and installed again right away keeps its data.
 
-  ```bash
-  rm -rf ~/Library/Application\ Support/iina/plugins/.data/io.github.xinmin.iina-sub
-  ```
+If you want to keep the transcripts, export them before you remove the plugin
+— ⌥E writes them next to the video — or remove only the models from the
+sidebar tab of the plugin: "Remove the Downloaded Models…" deletes the
+hundreds of megabytes and keeps the transcripts.
 
-  The transcripts and the models are in it, and nothing else of yours is.
+Should the data still be there — because the plugin was removed while the
+player was not running, for instance — it is in this folder:
+
+```
+~/Library/Application Support/com.colliderli.iina/plugins/.data/io.github.xinmin.iina-sub
+```
+
+and it goes with this command:
+
+```bash
+rm -rf ~/Library/Application\ Support/com.colliderli.iina/plugins/.data/io.github.xinmin.iina-sub
+```
 
 ---
 

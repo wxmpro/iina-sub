@@ -11,8 +11,8 @@ without a player. Two files hold them:
 
 | File | Cases | What it covers |
 |---|---|---|
-| `tests/run.js` | 86 | the behaviour of the plugin |
-| `tests/security.js` | 23 | the ways a hostile file, a hostile setting or a hostile model could try to make the plugin do something it should not |
+| `tests/run.js` | 89 | the behaviour of the plugin |
+| `tests/security.js` | 24 | the ways a hostile file, a hostile setting or a hostile model could try to make the plugin do something it should not |
 
 ```bash
 node tests/run.js
@@ -134,6 +134,14 @@ message of the assertion and the place it came from.
 | the whisper engine is told which script to write in | the program of the plugin is given the prompt |
 | the whisper engine is told nothing when the script is to be kept | the program of the plugin is given nothing |
 
+### The clean up after the plugin is removed
+
+| Case | What it checks |
+|---|---|
+| the name of the plugin is read out of the folder of its code | the folder of the data belongs to this plugin |
+| the folder of the data has to be the one of this plugin | nothing else is ever removed |
+| the watch is not started when the folder of the plugin is unknown | a wrong answer can never lead to a deletion |
+
 ### The language of the plugin
 
 | Case | What it checks |
@@ -190,6 +198,7 @@ message of the assertion and the place it came from.
 | a helper that this plugin did not build is not used | the helper is built again when it was changed |
 | a model that was put there by something else is fetched again | a model that was changed is not used |
 | a mirror that serves anything else is caught by the same check | a mirror cannot serve anything else |
+| the clean up removes the folder of the data of this plugin and nothing else | the folder that goes with the plugin is the one of this plugin, and no shell is used to remove it |
 | a model whose sum does not match is thrown away | a model that is not the one it claims to be is removed |
 | the plugin writes only inside its own folder and next to the video | every write of the plugin is looked at |
 | the plugin never asks the shell to interpret a name of a file | the two shells that are used have a constant text |

@@ -58,10 +58,15 @@ function prompt(text, ...values) {
  */
 function pushStatus(status, ...values) {
   const given = status || {};
+  // The values of the placeholders can be given as arguments or in the
+  // status itself, which is what the caller that builds the status uses.
+  const list = values.length
+    ? values
+    : (Array.isArray(given.values) ? given.values : []);
   const payload = {
     phase: String(given.phase || "idle"),
-    message: encodeText(i18n.t(given.message, ...values)),
-    detail: encodeText(i18n.t(given.detail, ...values)),
+    message: encodeText(i18n.t(given.message, ...list)),
+    detail: encodeText(i18n.t(given.detail, ...list)),
     percent: Number(given.percent) || 0,
     video: encodeText(given.video),
     elapsed: Number(given.elapsed) || 0,

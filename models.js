@@ -16,18 +16,32 @@ const sha256Of = srt.sha256OfFile;
  * model that was tampered with would run code on the machine of the user.
  */
 
-const BASE_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
-
 /**
- * A mirror that a machine in China can usually reach without a proxy.
+ * Where a model is fetched from.
  *
- * ModelScope mirrors the collection of whisper.cpp. Two repositories of it
- * hold the models of this catalogue; the files that were fetched from them
- * are byte-identical to the ones the upstream repository publishes, which is
- * what the sum check below is for. A mirror is only ever asked when the
- * upstream address cannot be reached.
+ * The first one is the repository of the upstream project. The others are
+ * mirrors of it, for the machines that cannot reach that address without a
+ * proxy. They hold the same files, and the sum that the upstream repository
+ * publishes is checked whatever the source is: a mirror that serves
+ * anything else is caught by that check, so a mirror cannot hand over a
+ * file that was changed on the way.
+ *
+ * No mirror can promise that it will be there tomorrow. The repository of
+ * a person on ModelScope is the least dependable of them, which is why
+ * there is more than one and why the upstream address is always tried
+ * first.
  */
-const MIRRORS = [
+const SOURCES = [
+  {
+    name: "huggingface.co",
+    url: (model) =>
+      "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/" + model,
+  },
+  {
+    name: "hf-mirror.com",
+    url: (model) =>
+      "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/" + model,
+  },
   {
     name: "ModelScope",
     url: (model) =>
@@ -188,7 +202,13 @@ async function download(modelName, onProgress) {
     }
   }
 
-  onProgress({ phase: "download", percent: 0, message: "Downloading {0}", detail: meta.label });
+  onProgress({
+    phase: "download",
+    percent: 0,
+    message: "Downloading {0}",
+    detail: meta.label,
+    values: [meta.label],
+  });
 
   const curlArgs = [
     // The settings of the user are not read. The player starts a program
@@ -220,10 +240,10 @@ async function download(modelName, onProgress) {
   // The upstream address first, and the mirrors after it when it cannot be
   // reached. The first file that passes the check below is kept; everything
   // else is thrown away.
-  const sources = [BASE_URL + meta.name].concat(MIRRORS.map((m) => m.url(meta.name)));
   let res = null;
   let lastError = null;
-  for (const source of sources) {
+  for (let index = 0; index < SOURCES.length; index++) {
+    const source = SOURCES[index];
     if (partial !== null && file.exists(partial)) {
       try {
         file.delete(partial);
@@ -234,10 +254,11 @@ async function download(modelName, onProgress) {
     onProgress({
       phase: "download",
       percent: 0,
-      message: source === sources[0] ? "Downloading {0}" : "Downloading {0} from a mirror",
+      message: index === 0 ? "Downloading {0}" : "Downloading {0} from {1}",
       detail: meta.label,
+      values: index === 0 ? [meta.label] : [meta.label, source.name],
     });
-    const attempt = curlArgs.concat(["-o", partial, source]);
+    const attempt = curlArgs.concat(["-o", partial, source.url(meta.name)]);
     res = await utils.exec("/usr/bin/curl", attempt);
     if (res.status === 0) break;
     lastError = res;
@@ -308,7 +329,13 @@ async function download(modelName, onProgress) {
     throw new Error("The model could not be put into place: " + e);
   }
 
-  onProgress({ phase: "done", percent: 100, message: "{0} is ready", detail: meta.label });
+  onProgress({
+    phase: "done",
+    percent: 100,
+    message: "{0} is ready",
+    detail: meta.label,
+    values: [meta.label],
+  });
   return target;
 }
 

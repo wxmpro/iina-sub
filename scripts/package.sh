@@ -35,6 +35,7 @@ commands.js
 srt.js
 zh.js
 script.js
+watchdog.js
 worker.js
 engines.js
 decoder.js

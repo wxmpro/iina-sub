@@ -55,6 +55,7 @@ const DICTIONARY = {
   "The saved transcripts were removed": "已删除保存的字幕",
   "Downloading {0}": "正在下载 {0}",
   "Downloading {0} from a mirror": "正在从镜像下载 {0}",
+  "Downloading {0} from {1}": "正在从 {1} 下载 {0}",
   "The engine is not ready": "引擎尚未就绪",
   "The speech recognition program is missing": "缺少语音识别程序",
   "Use the sidebar tab of the plugin to fetch it": "可在插件的侧边栏中获取",
