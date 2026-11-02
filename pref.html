@@ -124,6 +124,30 @@
     </p>
   </div>
 
+  <div class="field">
+    <span class="name"><span class="en">The script of the Chinese subtitles</span><span class="zh" hidden>中文字幕的字形</span></span>
+    <label class="radio">
+      <input type="radio" data-pref-key="subtitleScript" name="subtitleScript" value="simplified">
+      <span class="en">Simplified Chinese</span><span class="zh" hidden>简体中文</span>
+    </label>
+    <label class="radio">
+      <input type="radio" data-pref-key="subtitleScript" name="subtitleScript" value="traditional">
+      <span class="en">Traditional Chinese</span><span class="zh" hidden>繁體中文</span>
+    </label>
+    <label class="radio">
+      <input type="radio" data-pref-key="subtitleScript" name="subtitleScript" value="as-is">
+      <span class="en">As the model wrote it</span><span class="zh" hidden>保留模型原样</span>
+    </label>
+    <p class="help">
+      <span class="en">The model writes Chinese in whichever script it thinks it heard, and it
+      may change the script in the middle of a file. Here the model is told which script to
+      write in, and what it wrote anyway is brought into that script afterwards. The
+      setting is only used for Chinese.</span>
+      <span class="zh" hidden>模型会按自己听到的字形来写中文，甚至在同一支片子里混着写。
+      这里会先告诉模型用哪种字形写，模型写完后再统一成这种字形。此项只对中文有效。</span>
+    </p>
+  </div>
+
   <h3><span class="en">Chunking</span><span class="zh" hidden>分段</span></h3>
   <div class="field">
     <label for="chunk"><span class="en">Chunk length (seconds)</span><span class="zh" hidden>每段长度（秒）</span></label>

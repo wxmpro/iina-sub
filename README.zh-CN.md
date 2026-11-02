@@ -195,11 +195,31 @@ brew install whisper.cpp
 | Model file | *(空)* | `.bin` 模型的路径 |
 | Proxy | *(空)* | 下载模型时用的代理，例如 `http://127.0.0.1:7890` |
 | Language | `zh` | 语音的 ISO 语言代码，或 `auto` 自动识别 |
+| 中文字幕的字形 | `简体中文` | `简体中文`、`繁体中文` 或 `保留模型原样`，见下 |
 | Language of the plugin | `auto` | 菜单和提示的语言：跟系统一致、`zh` 或 `en` |
 | Chunk length | `30` | 每块多少秒。块越长，模型能拿到的上下文越多 |
 | Overlap | `2` | 每块之后多解一点音频，句子才不会被拦腰截断 |
 | Transcribe automatically when a video is opened | 开 | 关掉后只有你主动要求才转写 |
 | Load the cached subtitles when a video is opened | 开 | 打开视频时加载已有转写稿 |
+
+### 简体和繁体
+
+Whisper 认语言，不认字形。它的语言表里没有 `zh-Hans`，也没有 `zh-Hant`：
+简体和繁体在模型看来是同一门语言，它自己挑一种来写，还会写到一半换一种，
+于是同一支片子前半段简体、后半段繁体。
+
+「中文字幕的字形」这一项就是来解决这件事的：
+
+- **简体中文**（默认）——先给模型一句简体的起手文字，让它自己就用简体写；
+  凡是它写成了繁体的，事后统一改回来。
+- **繁体中文**——反过来。
+- **保留模型原样**——不改也不提示，字幕就是模型说的样子。
+
+这一项只对中文生效。日文不会被改动——把繁体转成简体的字表会把日文汉字
+一起改掉。
+
+字形算在转写稿的指纹里，所以改了这一项，文件会重新转写一遍。这是故意的：
+换了字形，模型写出来的本来就不一样。
 
 ---
 
@@ -323,3 +343,10 @@ bash scripts/package.sh
 ## 许可证
 
 MIT
+
+`zh.js` 里装的是 [OpenCC](https://github.com/BYVoid/OpenCC) 的词典数据，
+Apache 许可证 2.0。该许可证的全文和 OpenCC 的声明在
+[docs/OPENCC-LICENSE.txt](docs/OPENCC-LICENSE.txt)。
+
+插件自带的语音识别程序用的是 [whisper.cpp](https://github.com/ggml-org/whisper.cpp)
+的库，MIT 许可证，全文在 `tools/whisper.cpp-LICENSE`。

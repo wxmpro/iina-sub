@@ -11,8 +11,8 @@ without a player. Two files hold them:
 
 | File | Cases | What it covers |
 |---|---|---|
-| `tests/run.js` | 70 | the behaviour of the plugin |
-| `tests/security.js` | 22 | the ways a hostile file, a hostile setting or a hostile model could try to make the plugin do something it should not |
+| `tests/run.js` | 84 | the behaviour of the plugin |
+| `tests/security.js` | 23 | the ways a hostile file, a hostile setting or a hostile model could try to make the plugin do something it should not |
 
 ```bash
 node tests/run.js
@@ -113,6 +113,25 @@ message of the assertion and the place it came from.
 | a video with a cache is not transcribed again | the cache is used |
 | the audio track is counted among the audio tracks only | the number of the track is the one the decoder expects |
 
+### The script of the Chinese subtitles
+
+| Case | What it checks |
+|---|---|
+| Traditional Chinese is turned into Simplified Chinese | the tables of OpenCC do their work |
+| a word of its own is protected from a shorter rule | 著名 stays 著名 and does not become 着名 |
+| a text that is already in Simplified Chinese is left as it is | the conversion costs nothing when it is not needed |
+| Simplified Chinese is turned into Traditional Chinese | the other direction works as well |
+| the model is told which script to write in | the engine is given the text of the script |
+| the prompt holds no punctuation | a prompt that ends in a full stop makes the model write long sentences |
+| no prompt is given when the script of the model is to be kept | the setting is obeyed |
+| no prompt is given for a language that is not Chinese | a Chinese prompt would make a Japanese model write Chinese |
+| the text of a language that is not Chinese is left as it is | the tables would change the Chinese characters of Japanese |
+| the cues are brought into the script that was asked for | the transcript is in the script that was asked for |
+| the cues are left as they are when the script of the model is kept | the setting is obeyed |
+| the script is part of the fingerprint | a transcript of one script is not a transcript of the other |
+| the whisper engine is told which script to write in | the program of the plugin is given the prompt |
+| the whisper engine is told nothing when the script is to be kept | the program of the plugin is given nothing |
+
 ### The language of the plugin
 
 | Case | What it checks |
@@ -192,3 +211,4 @@ message of the assertion and the place it came from.
 | the export is a valid subtitle file | the file is opened in another player |
 | the models are fetched without a proxy | the download is made with the network of the machine and no proxy |
 | the bundle of the speech recognition program runs | the program is built and run on both an Apple Silicon and an Intel machine |
+| the subtitles are in the script that was asked for | the whole transcript is counted, character by character: a text in Simplified Chinese holds no Traditional character, and the other way round |

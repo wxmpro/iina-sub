@@ -10,6 +10,7 @@ const worker = require("./worker.js");
 const engines = require("./engines.js");
 const decoder = require("./decoder.js");
 const models = require("./models.js");
+const script = require("./script.js");
 
 
 /**
@@ -173,6 +174,12 @@ async function runJob(job) {
       }
 
       if (job.cancelled) break;
+
+      // What the model wrote is brought into the script that was asked for.
+      // The model was told which script to write in, so this changes
+      // nothing for the engines that listen; it is the fallback for the
+      // ones that do not, and for the few characters the model got wrong.
+      script.applyToCues(cues, settings);
 
       srt.mergeCues(job.cues, cues, 0);
       await publishCues(job);

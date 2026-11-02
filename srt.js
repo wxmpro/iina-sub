@@ -450,6 +450,7 @@ async function transcriptFingerprint(mediaPath, config, decoderHash, audioTrackI
     engineStat ? engineStat.size : "",
     engineStat ? engineStat.mtime : "",
     config.language,
+    config.subtitleScript || "simplified",
     config.chunkSeconds,
     config.tailSeconds,
     typeof audioTrackIndex === "number" && audioTrackIndex >= 0

@@ -167,6 +167,8 @@ static void usage() {
             "  -l LANG   the language of the speech, for example zh or auto\n"
             "  -of BASE  the name the result is written under, without an extension\n"
             "  -t N      the number of threads\n"
+            "  --prompt TEXT  the text the model starts with, which tells it\n"
+            "                 in what style and in what script to write\n"
             "  -np       no progress is printed\n"
             "  -pp       the progress is printed\n");
 }
@@ -176,6 +178,7 @@ int main(int argc, char ** argv) {
     std::string audio;
     std::string language = "zh";
     std::string outputBase;
+    std::string prompt;
     int threads = 0;
 
     for (int i = 1; i < argc; i++) {
@@ -198,6 +201,12 @@ int main(int argc, char ** argv) {
             outputBase = next("-of");
         } else if (arg == "-t" || arg == "--threads") {
             threads = atoi(next("-t").c_str());
+        } else if (arg == "--prompt") {
+            // The text the model starts with. It is not written out, but the
+            // model writes in the style and in the script of it, which is
+            // how the caller asks for Simplified Chinese or for Traditional
+            // Chinese.
+            prompt = next("--prompt");
         } else if (arg == "-osrt" || arg == "--output-srt") {
             // The program writes a SubRip file and nothing else, so the
             // format the caller asks for is the one it gets. The option is
@@ -254,6 +263,13 @@ int main(int argc, char ** argv) {
     params.suppress_nst = false;
     params.language = language.c_str();
     params.detect_language = language == "auto";
+    if (!prompt.empty()) {
+        // The text is the context the model starts with. It is not written
+        // out itself, but the model writes in the style and in the script of
+        // it, which is how the caller asks for Simplified Chinese or for
+        // Traditional Chinese.
+        params.initial_prompt = prompt.c_str();
+    }
     params.n_threads = threads > 0 ? threads : std::min(4, static_cast<int32_t>(std::thread::hardware_concurrency()));
     params.progress_callback = progress_callback;
     params.progress_callback_user_data = nullptr;

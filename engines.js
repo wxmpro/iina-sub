@@ -3,6 +3,7 @@ const { utils, file, console, preferences } = iina;
 const srt = require("./srt.js");
 const decoder = require("./decoder.js");
 const models = require("./models.js");
+const script = require("./script.js");
 
 /**
  * Engine adapters.
@@ -264,12 +265,12 @@ function shortMessage(text) {
  * what is in it and build it again.
  */
 const WHISPER_BUNDLE_URL =
-  "https://github.com/wxmpro/iina-sub/releases/download/v1.4.2/" +
+  "https://github.com/wxmpro/iina-sub/releases/download/v2.1.0/" +
   "iina-sub-whisper-macos.zip";
 
 /** The sum of that file. A file that does not match is thrown away. */
 const WHISPER_BUNDLE_SHA256 =
-  "432b84c64fed45c4515caaaab49a44266e85d3ac42c422d8c6bfeb6eae815bd9";
+  "e24b5aa06f1de5c83ce4a68079470894ce342250320e0a6abba1bd8074ac3c23";
 
 /** The release of whisper.cpp that the library in that file belongs to. */
 const WHISPER_RELEASE = "b5454";
@@ -485,6 +486,13 @@ const whisperCpp = {
       "-np",
     ];
 
+    // The model is told which script to write in. It is a short text in that
+    // script, and the model writes in the style of it from then on.
+    const prompt = script.promptFor(config);
+    if (prompt) {
+      whisperArgs.push("--prompt", prompt);
+    }
+
     let res = null;
     try {
       // A part of a file is a minute of audio at most, so a run that takes
@@ -564,8 +572,16 @@ const mlxWhisper = {
       "--output_dir", outputDir,
       "--output_format", "json",
       "--language", config.language || "zh",
-      wavPath,
     ];
+
+    // The model is told which script to write in, in the same way as with
+    // whisper.cpp.
+    const prompt = script.promptFor(config);
+    if (prompt) {
+      args.push("--initial_prompt", prompt);
+    }
+
+    args.push(wavPath);
 
     let res = null;
     try {
@@ -634,6 +650,8 @@ const mlxWhisper = {
  *   {language} language code
  *   {start}   start of the chunk in seconds
  *   {duration} length of the chunk in seconds
+ *   {prompt}  a short text in the script the subtitles should be in, empty
+ *             when the script of the model is to be kept
  *
  * The command is run through /bin/sh, so pipes and redirections are allowed.
  * The placeholders expand to shell positional parameters, which means the
@@ -692,6 +710,7 @@ const customCommand = {
       wavPath,
       String(startSeconds),
       String(durationSeconds),
+      script.promptFor(config),
     ];
 
     const expand = (value) =>
@@ -702,7 +721,8 @@ const customCommand = {
         .replace(/\{language\}/g, '"$4"')
         .replace(/\{audio\}/g, '"$5"')
         .replace(/\{start\}/g, '"$6"')
-        .replace(/\{duration\}/g, '"$7"');
+        .replace(/\{duration\}/g, '"$7"')
+        .replace(/\{prompt\}/g, '"$8"');
 
     let res = null;
     try {

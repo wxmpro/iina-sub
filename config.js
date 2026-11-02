@@ -46,6 +46,7 @@ function readConfig() {
     whisperPath: whisperPath,
     modelPath: String(preferences.get("modelPath") || ""),
     language: String(preferences.get("language") || "zh"),
+    subtitleScript: String(preferences.get("subtitleScript") || "simplified"),
     chunkSeconds: num("chunkSeconds", 30, 10, 300),
     tailSeconds: num("tailSeconds", 2, 0, 15),
     autoLoad: bool("autoLoad", true),

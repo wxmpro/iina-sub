@@ -228,11 +228,37 @@ is not complete, and the plugin asks before it writes one.
 | Model file | *(empty)* | Path to the `.bin` model |
 | Proxy | *(empty)* | Proxy for the model download, for example `http://127.0.0.1:7890` |
 | Language | `zh` | ISO code of the speech, or `auto` to detect it |
+| The script of the Chinese subtitles | `Simplified Chinese` | `Simplified Chinese`, `Traditional Chinese`, or `As the model wrote it` — see below |
 | Language of the plugin | `auto` | The language of the menu and the messages: the one of the system, `zh` or `en` |
 | Chunk length | `30` | Seconds per chunk. Longer chunks give the model more context |
 | Overlap | `2` | Extra audio decoded after each chunk so sentences are not cut in half |
 | Transcribe automatically when a video is opened | on | Turn this off to only transcribe when you ask for it |
 | Load the cached subtitles when a video is opened | on | Load the transcript when a video is opened |
+
+### Simplified Chinese and Traditional Chinese
+
+Whisper knows languages, not scripts. There is no `zh-Hans` and no `zh-Hant`
+in its list of languages: Simplified Chinese and Traditional Chinese are the
+same language to the model, and it picks one of them by itself — and it may
+even change its mind in the middle of a file, so that one video comes out
+half in one script and half in the other.
+
+The setting *The script of the Chinese subtitles* settles it:
+
+- **Simplified Chinese** (the default) — the model is given a short text in
+  Simplified Chinese to start with, and it writes in that script by itself.
+  Whatever it wrote in the other script is brought over afterwards.
+- **Traditional Chinese** — the same, the other way round.
+- **As the model wrote it** — nothing is changed and nothing is asked. The
+  subtitles are exactly what the model said.
+
+The setting is only used for Chinese. A text of Japanese is left alone,
+because the tables that turn Traditional into Simplified would change the
+Chinese characters of Japanese as well.
+
+The script is part of the fingerprint of a transcript, so changing it
+transcribes the file again. That is on purpose: the model writes another
+text when it is told another script.
 
 ---
 
@@ -386,3 +412,12 @@ and for the list of things to try after a change.
 ## License
 
 MIT
+
+The file `zh.js` carries the dictionary data of
+[OpenCC](https://github.com/BYVoid/OpenCC), which is under the Apache
+License 2.0. The copy of that licence and the notice of OpenCC are in
+[docs/OPENCC-LICENSE.txt](docs/OPENCC-LICENSE.txt).
+
+The speech recognition program that the plugin brings along uses the library
+of [whisper.cpp](https://github.com/ggml-org/whisper.cpp), which is under
+the MIT licence; the copy is in `tools/whisper.cpp-LICENSE`.

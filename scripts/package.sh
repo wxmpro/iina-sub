@@ -33,6 +33,8 @@ session.js
 setup.js
 commands.js
 srt.js
+zh.js
+script.js
 worker.js
 engines.js
 decoder.js
@@ -43,6 +45,7 @@ README.md
 README.zh-CN.md
 TESTING.md
 docs/screenshot.png
+docs/OPENCC-LICENSE.txt
 LICENSE"
 
 # The archive holds the plugin files flat, without a wrapping directory.
