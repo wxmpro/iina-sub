@@ -42,6 +42,7 @@ sidebar.html
 README.md
 README.zh-CN.md
 TESTING.md
+docs/screenshot.png
 LICENSE"
 
 # The archive holds the plugin files flat, without a wrapping directory.

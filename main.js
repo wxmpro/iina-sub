@@ -199,6 +199,12 @@ event.on("iina.window-loaded", () => {
     sidebar.onMessage("removeModels", () => {
       return commands.commandRemoveModels();
     });
+    // The page of the sidebar is ready and asks for the language. A
+    // message that was sent before the page was there would have been lost,
+    // so the page asks for it.
+    sidebar.onMessage("ready", () => {
+      sidebar.postMessage("locale", { locale: i18n.locale() });
+    });
     sidebar.onMessage("fetchEngine", () => {
       return setup.commandFetchEngine();
     });

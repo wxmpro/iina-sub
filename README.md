@@ -7,6 +7,12 @@ your machine. No cloud, no API key, no upload of your media.
 
 [简体中文](README.zh-CN.md)
 
+![Subtitles that the plugin made, on the video of a local file](docs/screenshot.png)
+
+*The transcript is a real IINA subtitle track. It is loaded with `sub-add`, so
+every subtitle setting of the player — the font, the size, the colour, the
+position — works on it the way you expect.*
+
 ---
 
 ## Why another subtitle plugin?

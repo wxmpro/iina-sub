@@ -304,6 +304,12 @@
     // object. The page still works without it, so that it can be looked at
     // on its own.
     if (window.iina && window.iina.onMessage) {
+      // The page tells the plugin that it is there, and the plugin answers
+      // with the language. A message that is sent before the page is there
+      // is lost, so the page asks for what it needs.
+      if (window.iina.postMessage) {
+        window.iina.postMessage("ready", {});
+      }
       iina.onMessage("status", onStatus);
       iina.onMessage("activity", onActivity);
       iina.onMessage("models", onModels);
