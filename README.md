@@ -291,6 +291,12 @@ The setting is only used for Chinese. A text of Japanese is left alone,
 because the tables that turn Traditional into Simplified would change the
 Chinese characters of Japanese as well.
 
+The program that comes with the plugin knows the prompt. A program of an
+older build does not: the plugin sees that the option is not known, runs the
+file again without it, and does not try it again. The transcript is then
+written in the script the model chose, and the second half of the work still
+brings it into the script that was asked for.
+
 The script is part of the fingerprint of a transcript, so changing it
 transcribes the file again. That is on purpose: the model writes another
 text when it is told another script.

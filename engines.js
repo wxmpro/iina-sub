@@ -231,6 +231,31 @@ async function runWithLimit(command, args, limitMs) {
  * The speech model prints its whole help when it is used wrongly, and that
  * does not belong on the screen of the player.
  */
+/**
+ * Whether the program did not know the option that tells it which script to
+ * write in.
+ *
+ * The builds of whisper.cpp that are older than the prompt do not know it,
+ * and they stop right away when they are given an option they do not have.
+ * The option is tried once; when the program does not know it, it is not
+ * tried again, and the transcript is written in the script the model chose.
+ */
+let promptSupported = true;
+
+function unknownPromptOption(text) {
+  const value = String(text || "").toLowerCase();
+  if (value.indexOf("--prompt") === -1 && value.indexOf("--initial_prompt") === -1) {
+    return false;
+  }
+  return (
+    value.indexOf("unknown argument") !== -1 ||
+    value.indexOf("unknown option") !== -1 ||
+    value.indexOf("not known") !== -1 ||
+    value.indexOf("invalid argument") !== -1 ||
+    value.indexOf("unrecognized") !== -1
+  );
+}
+
 function shortMessage(text) {
   const lines = String(text || "")
     .split("\n")
@@ -489,15 +514,19 @@ const whisperCpp = {
     // The model is told which script to write in. It is a short text in that
     // script, and the model writes in the style of it from then on.
     const prompt = script.promptFor(config);
-    if (prompt) {
-      whisperArgs.push("--prompt", prompt);
-    }
+    const withPrompt = prompt && promptSupported ? whisperArgs.concat(["--prompt", prompt]) : whisperArgs;
 
     let res = null;
     try {
       // A part of a file is a minute of audio at most, so a run that takes
       // longer than this is not making progress any more.
-      res = await runWithLimit(config.whisperPath, whisperArgs, RUN_LIMIT_MS);
+      res = await runWithLimit(config.whisperPath, withPrompt, RUN_LIMIT_MS);
+      if (res.status !== 0 && withPrompt !== whisperArgs && unknownPromptOption(res.stderr)) {
+        // The program does not know the option. It is run again without it,
+        // and the option is not tried again.
+        promptSupported = false;
+        res = await runWithLimit(config.whisperPath, whisperArgs, RUN_LIMIT_MS);
+      }
     } catch (e) {
       await remove(wavPath);
       throw new Error("The speech recognition model could not be started: " + e);
@@ -577,7 +606,8 @@ const mlxWhisper = {
     // The model is told which script to write in, in the same way as with
     // whisper.cpp.
     const prompt = script.promptFor(config);
-    if (prompt) {
+    const baseArgs = args.slice();
+    if (prompt && promptSupported) {
       args.push("--initial_prompt", prompt);
     }
 
@@ -588,6 +618,12 @@ const mlxWhisper = {
       // The program is stopped when it takes too long, in the same way as
       // the program of whisper.cpp.
       res = await runWithLimit(config.enginePath, args, RUN_LIMIT_MS);
+      if (res.status !== 0 && args.length !== baseArgs.length + 1 && unknownPromptOption(res.stderr)) {
+        // The program does not know the option. It is run again without it,
+        // and the option is not tried again.
+        promptSupported = false;
+        res = await runWithLimit(config.enginePath, baseArgs.concat([wavPath]), RUN_LIMIT_MS);
+      }
     } catch (e) {
       await remove(wavPath);
       throw new Error("mlx-whisper could not be started: " + e);
@@ -785,6 +821,7 @@ function list() {
 module.exports = {
   getEngine,
   list,
+  unknownPromptOption,
   ENGINES,
   runWithLimit,
   WHISPER_RELEASE,
