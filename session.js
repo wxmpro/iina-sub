@@ -186,11 +186,12 @@ async function runJob(job) {
       // itself as long as the program is not updated.
       if (!job.oldEngineWarned && engines.promptSupport() === "no") {
         job.oldEngineWarned = true;
-        ui.osd("the speech recognition program is too old");
+        ui.osd("the speech recognition program is too old, please update it");
         ui.logActivity(
           "The speech recognition program does not know the option that tells it " +
-            "which script to write in. Update it and the model will write in the " +
-            "script you chose; until then the text is brought over afterwards."
+            "which script to write in. Update it (brew upgrade whisper.cpp, or " +
+            "pip install -U mlx-whisper) and the model will write in the script " +
+            "you chose; until then the text is brought over afterwards."
         );
       }
 
