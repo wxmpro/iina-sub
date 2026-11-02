@@ -41,9 +41,7 @@ TARGET = os.path.join(ROOT, "zh.js")
 
 TABLES = [
     ("CHARACTERS", "TSCharacters.txt"),
-    ("TW_PHRASES", "TWPhrasesRev.txt"),
     ("TW_VARIANT_PHRASES", "TWVariantsRevPhrases.txt"),
-    ("TW_VARIANTS", "TWVariantsRev.txt"),
     ("PHRASES", "TSPhrases.txt"),
     ("S2T_CHARACTERS", "STCharacters.txt"),
 ]
@@ -107,14 +105,20 @@ function readTable(text, characters) {
   return { map: map, longest: longest };
 }
 
-const twPhrases = readTable(TW_PHRASES, traditionalCharacters);
 const twVariantPhrases = readTable(TW_VARIANT_PHRASES, traditionalCharacters);
-const twVariants = readTable(TW_VARIANTS, traditionalCharacters);
+const zheVariant = readTable(ZHE_VARIANT, traditionalCharacters);
 const phrases = readTable(PHRASES, traditionalCharacters);
 const characters = readTable(CHARACTERS, traditionalCharacters);
 const s2tCharacters = readTable(S2T_CHARACTERS, simplifiedCharacters);
 
-groups.push([twPhrases, twVariantPhrases, twVariants]);
+// The first group holds the words that protect a character from a shorter
+// rule: 著 in 著名 is one of them. The second group holds the words and
+// the characters that are written differently in Traditional Chinese.
+//
+// The words of Taiwan are not in the chain: they change the meaning of a
+// text and not only its script. A text that says 序列 is turned into 串行
+// by them, and 核心 into 内核, and there are 122 such words.
+groups.push([twVariantPhrases, zheVariant]);
 groups.push([phrases, characters]);
 
 /**
@@ -281,6 +285,12 @@ def read_pairs(directory, name):
 
 def main():
     directory = find_dictionary_dir()
+    # 著 is a character of both scripts: in 著名 it stays 著, and in 寫著 it
+    # is the 着 of the mainland form. The words in which it stays are the
+    # ones of the table of OpenCC that protects them; everything else is
+    # turned into 着.
+    zhe = "著\t着"
+
     with io.open(TARGET, "w", encoding="utf-8") as out:
         out.write(HEADER)
         for name, filename in TABLES:
@@ -288,6 +298,8 @@ def main():
             body = "\n".join(a + "\t" + b for a, b in pairs)
             out.write("/** " + filename + " — " + str(len(pairs)) + " entries. */\n")
             out.write("const " + name + " = " + json.dumps(body, ensure_ascii=False) + ";\n\n")
+        out.write("/** The character that is written 着 in the mainland form. */\n")
+        out.write("const ZHE_VARIANT = " + json.dumps(zhe, ensure_ascii=False) + ";\n\n")
         out.write(BODY)
     print("written: " + TARGET)
 

@@ -11,7 +11,7 @@ without a player. Two files hold them:
 
 | File | Cases | What it covers |
 |---|---|---|
-| `tests/run.js` | 84 | the behaviour of the plugin |
+| `tests/run.js` | 86 | the behaviour of the plugin |
 | `tests/security.js` | 23 | the ways a hostile file, a hostile setting or a hostile model could try to make the plugin do something it should not |
 
 ```bash
@@ -120,6 +120,8 @@ message of the assertion and the place it came from.
 | Traditional Chinese is turned into Simplified Chinese | the tables of OpenCC do their work |
 | a word of its own is protected from a shorter rule | 著名 stays 著名 and does not become 着名 |
 | a text that is already in Simplified Chinese is left as it is | the conversion costs nothing when it is not needed |
+| a word of Simplified Chinese is not turned into another word | 为什么 stays 为什么 and 序列 stays 序列 |
+| the verb of 著 is written 着 | 接著 becomes 接着, and 著名 stays 著名 |
 | Simplified Chinese is turned into Traditional Chinese | the other direction works as well |
 | the model is told which script to write in | the engine is given the text of the script |
 | the prompt holds no punctuation | a prompt that ends in a full stop makes the model write long sentences |
