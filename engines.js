@@ -83,8 +83,21 @@ function findJsonFile(directory) {
  * program, so the number in the file is the number of the program itself and
  * not the number of the shell. Every value travels as a parameter of the
  * shell, so a name of a file can never become a command.
+ *
+ * The program is started below the normal priority: the transcription is
+ * background work, and the apps the user is actively using should always win
+ * the processor. On an idle machine this costs nothing; on a busy one it is
+ * the difference between the video staying smooth and the recognition
+ * fighting the front page for every core.
+ *
+ * The level asked for is five, which lands ten below the normal priority.
+ * The bundled engine manages its own priority as well and is already below
+ * the normal one when it starts, so for it this is a safety net; an engine
+ * of the user's own choosing knows nothing about manners and gets them here.
+ * The level disappears once the program is running — what the system sees is
+ * the program itself, exactly as before.
  */
-const START_SCRIPT = 'echo $$ > "$1"; shift; exec "$@"';
+const START_SCRIPT = 'echo $$ > "$1"; shift; exec /usr/bin/nice -n 5 "$@"';
 
 /**
  * The longest time a program is given before it is stopped.
