@@ -382,6 +382,26 @@ async function verifyFile(path, meta) {
 }
 
 /**
+ * The place where the outcome of a model check is written down.
+ *
+ * The check reads every byte of a model of half a gigabyte, which costs a
+ * moment on every start of the player. The outcome is written down next to
+ * the model, keyed by the size, the time of change and the number of the
+ * file, so a start that comes later can trust it until the file changes.
+ *
+ * This is the same trust the check of a running session already carries: the
+ * file is taken for unchanged while its size and its time of change say so.
+ * The download itself was checked against the sum the upstream repository
+ * publishes; this stamp only spares the repeated reading of the file.
+ */
+function modelStampPath(modelPath) {
+  const name = String(modelPath).split("/").pop() || "";
+  const dir = modelDirectory();
+  if (!dir || !name) return "";
+  return dir + "/" + name + ".verified";
+}
+
+/**
  * Check a model file that the user chose.
  *
  * A file whose name is one of the models of the catalogue is compared with
@@ -421,6 +441,24 @@ async function verifyModelFile(path) {
     return remembered.result;
   }
 
+  // The outcome of an earlier start is on the disk. It holds for the file
+  // that has the same size, the same time of change and the same number —
+  // which is the file that was verified when it was written.
+  const stampPath = modelStampPath(path);
+  const stampKey = [stat.size, stat.mtime, stat.inode].join("|");
+  try {
+    if (stampPath && file.exists(stampPath)) {
+      const stamp = String(file.read(stampPath, {}) || "").trim();
+      if (stamp === stampKey) {
+        const result = { known: true, ok: true, reason: "" };
+        modelChecks.set(path, { size: stat.size, mtime: stat.mtime, result: result });
+        return result;
+      }
+    }
+  } catch (e) {
+    /* the stamp could not be read, so the file is read instead */
+  }
+
   const digest = await sha256Of(path);
   if (!digest) {
     return { known: true, ok: false, reason: "The sum of the model file could not be read." };
@@ -439,6 +477,13 @@ async function verifyModelFile(path) {
             digest.toLowerCase(),
         };
   modelChecks.set(path, { size: stat.size, mtime: stat.mtime, result: result });
+  if (result.ok && stampPath) {
+    try {
+      file.write(stampPath, stampKey + "\n");
+    } catch (e) {
+      /* the stamp is an optimisation, not a requirement */
+    }
+  }
   return result;
 }
 

@@ -151,17 +151,18 @@
   <h3><span class="en">Chunking</span><span class="zh" hidden>分段</span></h3>
   <div class="field">
     <label for="chunk"><span class="en">Chunk length (seconds)</span><span class="zh" hidden>每段长度（秒）</span></label>
-    <input id="chunk" type="number" min="10" max="300" step="5" data-type="int" data-pref-key="chunkSeconds">
+    <input id="chunk" type="number" min="30" max="600" step="10" data-type="int" data-pref-key="chunkSeconds">
     <p class="help">
       <span class="en">The file is transcribed in chunks of this length so that subtitles appear
       while the video is still playing. Longer chunks give the model more
-      context.</span>
-      <span class="zh" hidden>文件按此长度分段转写，因此播放过程中就能看到字幕。分段越长，模型能获得的上下文越多。</span>
+      context, which is what keeps the terms of a lecture right; they also mean
+      fewer runs of the recognition program.</span>
+      <span class="zh" hidden>文件按此长度分段转写，因此播放过程中就能看到字幕。分段越长，模型能获得的上下文越多，术语也就越不容易听错；同时需要启动识别程序的次数也更少。</span>
     </p>
   </div>
   <div class="field">
     <label for="tail"><span class="en">Overlap (seconds)</span><span class="zh" hidden>重叠长度（秒）</span></label>
-    <input id="tail" type="number" min="0" max="15" step="1" data-type="int" data-pref-key="tailSeconds">
+    <input id="tail" type="number" min="0" max="30" step="1" data-type="int" data-pref-key="tailSeconds">
     <p class="help">
       <span class="en">Extra audio decoded after every chunk so the model hears the end of a
       sentence. Cues that start inside the overlap are dropped.</span>

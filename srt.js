@@ -422,6 +422,18 @@ async function ensureDir(path) {
 }
 
 /**
+ * Wait for a number of milliseconds.
+ *
+ * The player has no setTimeout on its own, but it is among the globals that
+ * the JavaScript runtime of the system provides.
+ */
+function wait(ms) {
+  return new Promise(function (resolve) {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
  * The fingerprint of the transcript of a media file.
  *
  * It covers everything that can change the result: the file, the model, the
@@ -452,6 +464,7 @@ async function transcriptFingerprint(mediaPath, config, decoderHash, audioTrackI
     config.language,
     config.subtitleScript || "simplified",
     config.chunkSeconds,
+    config.firstChunkSeconds || 0,
     config.tailSeconds,
     typeof audioTrackIndex === "number" && audioTrackIndex >= 0
       ? String(audioTrackIndex)
@@ -527,6 +540,7 @@ module.exports = {
   permissionBitsOf,
   sha256OfFile,
   ensureDir,
+  wait,
   subtitlePathFor,
   internalSubtitlePathFor,
   stampPathFor,

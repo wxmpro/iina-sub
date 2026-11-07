@@ -16,26 +16,70 @@ const script = require("./script.js");
 /**
  * Pick the chunk that matters most for the viewer.
  *
- * Chunks that start just ahead of the playhead are preferred so that the
- * part of the video the user is watching is transcribed first. When the user
- * seeks, the next pick simply lands somewhere else — there is no queue to
- * rebuild.
+ * Three rules, in this order:
+ *
+ *  - the part of the file the viewer is watching comes first, so that the text
+ *    of the moment is there as soon as it can be;
+ *  - when the viewer has jumped far ahead of what has been transcribed, the
+ *    file is worked on from two sides at once: the part in front of the
+ *    playhead is filled in, and the part behind it is filled in as well. The
+ *    viewer who keeps watching past the point they jumped to does not have
+ *    to wait for the whole part in front of it;
+ *  - otherwise the file is transcribed from its beginning, so that the
+ *    transcript is always one continuous stretch from the start of the file.
+ *
+ * A chunk that has been done is named by its start, not by its number: the
+ * plan is cut again while the run goes on, and a number would then point at
+ * another piece of audio than before.
  */
 function pickNextChunk(chunks, done, positionMs) {
-  let best = null;
-  let bestScore = Infinity;
+  if (!chunks || chunks.length === 0) return null;
+
+  // The first chunk that has not been transcribed, counting from the
+  // beginning of the file. Everything before it is done, so the transcript
+  // reaches this far without a gap.
+  let firstMissing = 0;
+  while (firstMissing < chunks.length && done.has(chunks[firstMissing].startMs)) {
+    firstMissing++;
+  }
+  const prefix = firstMissing < chunks.length ? chunks[firstMissing] : null;
+
+  // The chunk the playhead is in.
+  let current = null;
   for (const chunk of chunks) {
-    if (done.has(chunk.index)) continue;
-    const distance = Math.abs(chunk.startMs - positionMs);
-    // Chunks behind the playhead are slightly penalised so that the viewer
-    // does not have to wait for the part they are watching.
-    const score = chunk.startMs < positionMs ? distance + 30000 : distance;
-    if (score < bestScore) {
-      bestScore = score;
-      best = chunk;
+    if (positionMs >= chunk.startMs && positionMs < chunk.startMs + chunk.lengthMs) {
+      current = chunk;
+      break;
     }
   }
-  return best;
+
+  // The playhead is in a part of the file that is not covered yet. That part
+  // is done first, so that the viewer does not wait for text of the moment.
+  if (current && !done.has(current.startMs)) return current;
+
+  // The first chunk behind the playhead that is not transcribed yet. It is
+  // what the viewer will reach next, so it is worth having soon.
+  let ahead = null;
+  for (const chunk of chunks) {
+    if (chunk.startMs <= positionMs) continue;
+    if (done.has(chunk.startMs)) continue;
+    ahead = chunk;
+    break;
+  }
+
+  // The playhead is far beyond what has been transcribed. The two parts are
+  // worked on in turn, so that neither has to wait for the other.
+  const coveredUntilMs = prefix ? prefix.startMs + prefix.lengthMs : 0;
+  if (ahead && prefix && positionMs > coveredUntilMs + 60000) {
+    // The two parts take turns. The count of the chunks that are done says
+    // which of the two it is.
+    return done.size % 2 === 1 ? ahead : prefix;
+  }
+
+  // Otherwise the file is filled from the front, so that the transcript stays
+  // continuous.
+  if (prefix) return prefix;
+  return ahead;
 }
 
 /**
@@ -106,7 +150,12 @@ async function runJob(job) {
   // that audio is the voice of the user in plain text.
   await worker.clearChunkDirectory();
 
-  const chunks = worker.planChunks(job.durationMs, settings.chunkSeconds, settings.tailSeconds);
+  let chunks = worker.planChunks(
+    job.durationMs,
+    settings.chunkSeconds,
+    settings.tailSeconds,
+    settings.firstChunkSeconds
+  );
   if (chunks.length === 0) {
     throw new Error("The duration of this file is unknown, so it cannot be split into chunks.");
   }
@@ -120,13 +169,26 @@ async function runJob(job) {
     while (done.size < chunks.length) {
       if (job.cancelled) break;
 
-      const chunk = pickNextChunk(chunks, done, job.positionMs());
+      // The playhead may sit in a chunk that is long and not transcribed
+      // yet. It is cut here, at every turn, so that a drag in the middle of
+      // the run gets the same quick text as the start of the file.
+      const positionMs = job.positionMs ? job.positionMs() : 0;
+      chunks = worker.splitChunkAtPlayhead(
+        chunks,
+        positionMs,
+        settings.firstChunkSeconds,
+        settings.tailSeconds,
+        done
+      );
+
+      const chunk = pickNextChunk(chunks, done, positionMs);
       if (!chunk) break;
-      done.add(chunk.index);
+      done.add(chunk.startMs);
       attempted++;
 
       const base = ((done.size - 1) / chunks.length) * 100;
       const span = 100 / chunks.length;
+      const ordinal = chunks.indexOf(chunk) + 1;
 
       let cues = null;
       try {
@@ -144,7 +206,7 @@ async function runJob(job) {
                 video: job.mediaPath,
                 elapsed: (Date.now() - startedAt) / 1000,
               },
-              chunk.index + 1,
+              ordinal,
               chunks.length
             );
           }
@@ -157,7 +219,7 @@ async function runJob(job) {
         // produce the same error over and over.
         if (attempted === 1) throw new Error(message);
         failures.push(message);
-        console.warn("iina-sub: chunk " + chunk.index + " failed: " + message);
+        console.warn("iina-sub: chunk at " + chunk.startMs + " failed: " + message);
         ui.pushStatus(
           {
             phase: "transcribing",
@@ -167,7 +229,7 @@ async function runJob(job) {
             video: job.mediaPath,
             elapsed: (Date.now() - startedAt) / 1000,
           },
-          done.size,
+          ordinal,
           chunks.length
         );
         continue;
@@ -207,7 +269,7 @@ async function runJob(job) {
           video: job.mediaPath,
           elapsed: (Date.now() - startedAt) / 1000,
         },
-        done.size,
+        ordinal,
         chunks.length
       );
     }
@@ -283,7 +345,42 @@ async function runJob(job) {
     return false;
   } finally {
     if (state.job === job) state.job = null;
+    // A file that was opened while this one was being transcribed waits for
+    // this moment. It is started now, so that it does not stay without
+    // subtitles for ever.
+    if (state.pending.length > 0 && !state.batchRunning) {
+      runPending().catch((e) => {
+        console.error("iina-sub: the queued transcription failed: " + e);
+      });
+    }
   }
+}
+
+/**
+ * Start the transcription that was put aside while another one was running.
+ */
+async function runPending() {
+  // The file that waits the longest comes first.
+  const pending = state.pending.shift();
+  if (!pending) return;
+
+  // The file may have been transcribed while it was waiting.
+  const cached = await cache.findValidCache(
+    pending.mediaPath,
+    pending.settings,
+    pending.audioTrackIndex
+  );
+  if (cached && pending.settings.autoLoad) {
+    player.loadSubtitle(cached.subtitle, [srt.subtitlePathFor(pending.mediaPath)]);
+    ui.osd("loaded cached subtitles");
+    // The next one starts right away.
+    if (state.pending.length > 0) {
+      await runPending();
+    }
+    return;
+  }
+
+  await startTranscription(pending.mediaPath, pending.durationMs, pending.silent);
 }
 
 /**
@@ -450,4 +547,14 @@ async function startTranscriptionNow(job, durationMs, silent) {
   await runJob(job);
 }
 
-module.exports = { pickNextChunk, publishCues, showTranscript, runJob, createJob, prepareJob, startTranscription, startTranscriptionNow };
+module.exports = {
+  pickNextChunk,
+  publishCues,
+  showTranscript,
+  runJob,
+  runPending,
+  createJob,
+  prepareJob,
+  startTranscription,
+  startTranscriptionNow,
+};

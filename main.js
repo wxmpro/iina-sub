@@ -116,7 +116,6 @@ async function handleFileLoaded(mediaPath, settings) {
   // appear as soon as the first chunk is done.
   if (!settings.autoTranscribe) return;
   if (state.batchRunning) return;
-  if (isBusy()) return;
 
   // The setup is checked before the run starts, so that the first run of a
   // new user ends with subtitles and not with an error about a model.
@@ -137,6 +136,35 @@ async function handleFileLoaded(mediaPath, settings) {
 
   const duration = await worker.durationOf(mediaPath, player.currentDurationMs());
   if (!duration) return;
+
+  // Another transcription is still running. This file is put aside and
+  // started as soon as that one is done. Without this, opening a second
+  // video while the first one is still being transcribed would leave the
+  // second one without subtitles, and nothing would start it later.
+  if (isBusy()) {
+    // The same file is not put aside twice: the player says that a file was
+    // loaded more than once now and then.
+    const already = state.pending.some((p) => p.mediaPath === mediaPath);
+    if (!already) {
+      state.pending.push({
+        mediaPath: mediaPath,
+        durationMs: duration,
+        settings: settings,
+        silent: true,
+        audioTrackIndex: audioTrackIndex,
+      });
+    }
+    ui.pushStatus({
+      phase: "queued",
+      message: "Queued",
+      detail: ui.baseName(mediaPath),
+      percent: 0,
+      video: mediaPath,
+    });
+    ui.logActivity("Waiting for the running transcription: {0}", ui.baseName(mediaPath));
+    return;
+  }
+
   await session.startTranscription(mediaPath, duration, true);
 }
 
@@ -221,6 +249,19 @@ event.on("iina.window-loaded", () => {
   // The audio decoder is built now, in the background, so that the first
   // transcription does not have to wait for the compiler.
   decoder.prepareDecoder();
+
+  // The player may already be playing a file when the plugin is loaded — the
+  // player brings back the file of the last session, for instance. The event
+  // that says so has then already been and gone, and the file would never be
+  // transcribed. It is looked at here, so that a file which was opened before
+  // the plugin was ready is treated the same as one opened afterwards.
+  const mediaPath = player.currentMediaPath();
+  if (mediaPath) {
+    const settings = config.readConfig();
+    handleFileLoaded(mediaPath, settings).catch((e) => {
+      console.error("iina-sub: " + (e && e.message ? e.message : String(e)));
+    });
+  }
 });
 
 event.on("iina.file-loaded", () => {
@@ -235,7 +276,20 @@ event.on("iina.file-loaded", () => {
   }
 
   if (!mediaPath) {
-    ui.pushStatus({ phase: "idle", message: "Ready", percent: 0 });
+    // The player does not always know the path of the file at the very
+    // moment it says that a file was loaded. It is asked again a moment
+    // later, so that a file is not lost because of it.
+    setTimeout(() => {
+      const later = player.currentMediaPath();
+      if (!later) {
+        ui.pushStatus({ phase: "idle", message: "Ready", percent: 0 });
+        return;
+      }
+      const laterSettings = config.readConfig();
+      handleFileLoaded(later, laterSettings).catch((e) => {
+        console.error("iina-sub: " + (e && e.message ? e.message : String(e)));
+      });
+    }, 800);
     return;
   }
 

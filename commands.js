@@ -58,6 +58,11 @@ function commandCancel() {
     state.batchRunning = false;
     ui.osd("batch stopped after the current file");
   }
+  // A file that waits for the running transcription does not wait any more.
+  if (state.pending.length > 0) {
+    state.pending = [];
+    ui.osd("the queued transcription was cancelled");
+  }
   if (!state.job) {
     if (!state.batchRunning) ui.osd("nothing is running");
     return;
@@ -145,6 +150,13 @@ async function commandBatch() {
     state.batchRunning = false;
     state.batchQueue = [];
     state.job = null;
+  }
+
+  // A file that was opened while the batch was running starts now.
+  if (state.pending.length > 0) {
+    session.runPending().catch((e) => {
+      console.error("iina-sub: the queued transcription failed: " + e);
+    });
   }
 
   ui.osd("batch finished");
@@ -372,8 +384,22 @@ async function commandRemoveModels() {
   } catch (e) {
     entries = [];
   }
-  const models = entries.filter((entry) => entry && !entry.isDir && String(entry.filename).endsWith(".bin"));
+  const models = entries.filter(
+    (entry) =>
+      entry && !entry.isDir && String(entry.filename).endsWith(".bin")
+  );
+  const stamps = entries.filter(
+    (entry) =>
+      entry && !entry.isDir && String(entry.filename).endsWith(".verified")
+  );
   if (models.length === 0) {
+    for (const stamp of stamps) {
+      try {
+        file.delete(folder + "/" + stamp.filename);
+      } catch (e) {
+        /* best effort */
+      }
+    }
     ui.osd("there is no model to remove");
     return;
   }
@@ -391,6 +417,13 @@ async function commandRemoveModels() {
     try {
       file.delete(folder + "/" + model.filename);
       removed++;
+    } catch (e) {
+      /* best effort */
+    }
+  }
+  for (const stamp of stamps) {
+    try {
+      file.delete(folder + "/" + stamp.filename);
     } catch (e) {
       /* best effort */
     }

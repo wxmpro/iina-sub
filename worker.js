@@ -34,7 +34,10 @@ const decoder = require("./decoder.js");
  */
 function chunkOutputBase(mediaPath, chunk) {
   const key = srt.sha256(mediaPath || "").slice(0, 32);
-  return utils.resolvePath("@data/chunks/" + key + "-" + chunk.index);
+  // The start of the chunk names the file, not its number: the plan can be
+  // cut again while a run is going on, and a name that followed the number
+  // would then point at another piece of audio than before.
+  return utils.resolvePath("@data/chunks/" + key + "-" + chunk.startMs);
 }
 
 /**
@@ -118,23 +121,108 @@ async function transcribeChunk(context, engine, chunk, onProgress) {
  *
  * `tailSeconds` is the overlap added to every chunk; it is not a chunk of
  * its own and never produces cues on its own.
+ *
+ * `firstChunkSeconds` shortens the first chunk, so that the first subtitles
+ * appear within a few seconds of opening the file. The first subtitle cannot
+ * appear before the first chunk is recognised, and every run of the
+ * recognition program starts with loading the model again — a first chunk of
+ * the full length would hold the first subtitles back for many seconds. The
+ * chunks after the first keep the full length, so the accuracy of the rest is
+ * not touched.
  */
-function planChunks(durationMs, chunkSeconds, tailSeconds) {
+function planChunks(durationMs, chunkSeconds, tailSeconds, firstChunkSeconds) {
   const lengthMs = chunkSeconds * 1000;
   const tailMs = tailSeconds * 1000;
+  const firstMs =
+    firstChunkSeconds && firstChunkSeconds > 0 && firstChunkSeconds < chunkSeconds
+      ? firstChunkSeconds * 1000
+      : lengthMs;
   const chunks = [];
   if (!durationMs || durationMs <= 0) return chunks;
   let index = 0;
-  for (let start = 0; start < durationMs; start += lengthMs) {
+  let start = 0;
+  while (start < durationMs) {
+    const len = index === 0 ? firstMs : lengthMs;
     const remaining = durationMs - start;
     chunks.push({
       index: index++,
       startMs: start,
-      lengthMs: Math.min(lengthMs, remaining),
-      durationMs: Math.min(lengthMs + tailMs, remaining),
+      lengthMs: Math.min(len, remaining),
+      durationMs: Math.min(len + tailMs, remaining),
     });
+    start += len;
   }
   return chunks;
+}
+
+/**
+ * Cut the chunk the playhead is in around the playhead.
+ *
+ * A viewer who drags to a place that has no transcript yet waits for the
+ * chunk under the playhead, and a full-length chunk holds the first
+ * subtitles back for many seconds. The chunk is cut in three — the part
+ * before the playhead, a short piece that starts at the playhead, and the
+ * part after it — so that the piece the picking logic chooses first is a
+ * short one that holds the words the viewer is about to hear.
+ *
+ * The plan is cut again every time the picking logic is asked for a chunk,
+ * so a drag in the middle of a run is treated the same as a resume at the
+ * start. A chunk that is already transcribed is never cut: its pieces would
+ * be new ones and would be transcribed again for nothing.
+ *
+ * The pieces cover the chunk exactly, so the transcript keeps its coverage,
+ * and the boundaries of the plan are not part of the fingerprint, so a
+ * cached transcript stays valid. The start of a chunk identifies it — not a
+ * number — because the pieces of a cut get places of their own.
+ *
+ * Returns the plan when a cut was made, or the plan as it was.
+ */
+function splitChunkAtPlayhead(chunks, positionMs, firstChunkSeconds, tailSeconds, done) {
+  if (!positionMs || positionMs <= 0 || !chunks || chunks.length === 0) return chunks;
+  const firstMs = (firstChunkSeconds > 0 ? firstChunkSeconds : 30) * 1000;
+  const tailMs = (tailSeconds || 0) * 1000;
+
+  const at = chunks.findIndex(
+    (c) => positionMs >= c.startMs && positionMs < c.startMs + c.lengthMs
+  );
+  if (at < 0) return chunks;
+
+  const full = chunks[at];
+  if (full.lengthMs <= firstMs) return chunks; // short already
+  if (done && done.has(full.startMs)) return chunks; // transcribed already
+
+  const offsetMs = positionMs - full.startMs;
+  // The piece that holds the playhead is as long as the first chunk, except
+  // when the chunk ends before that: it then reaches back towards the start
+  // of the chunk, so that the piece keeps a length worth recognising. The
+  // playhead always sits inside it.
+  const chunkEndMs = full.startMs + full.lengthMs;
+  const hereEndMs = Math.min(positionMs + firstMs, chunkEndMs);
+  const hereStartMs = Math.max(
+    full.startMs,
+    Math.min(positionMs, hereEndMs - firstMs)
+  );
+  const pieces = [];
+  if (hereStartMs > full.startMs) {
+    pieces.push({ startMs: full.startMs, lengthMs: hereStartMs - full.startMs });
+  }
+  pieces.push({ startMs: hereStartMs, lengthMs: hereEndMs - hereStartMs });
+  if (chunkEndMs > hereEndMs) {
+    pieces.push({ startMs: hereEndMs, lengthMs: chunkEndMs - hereEndMs });
+  }
+
+  const plan = chunks.slice();
+  plan.splice(
+    at,
+    1,
+    ...pieces.map((p) => ({
+      index: 0,
+      startMs: p.startMs,
+      lengthMs: p.lengthMs,
+      durationMs: p.lengthMs + tailMs,
+    }))
+  );
+  return plan;
 }
 
 /**
@@ -186,6 +274,7 @@ module.exports = {
   clearChunkDirectory,
   transcribeChunk,
   planChunks,
+  splitChunkAtPlayhead,
   probeDuration,
   durationOf,
 };

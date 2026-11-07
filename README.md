@@ -45,6 +45,12 @@ your disk.**
 - **Subtitles appear on their own.** A video that has no transcript yet is
   transcribed as soon as it is opened. The transcript is refreshed after every
   chunk, so you do not have to wait for a two hour lecture to be processed.
+  A video that is opened while another one is still being transcribed waits
+  its turn and is started as soon as that one is done — it is not dropped.
+- **A transcript without holes.** The part of the file you are watching is
+  transcribed first, and the rest is filled in from the beginning, so the
+  transcript is always one continuous stretch from the start of the file, even
+  after you seek.
 - **Smart caching.** The transcript is stored together with a fingerprint of
   the media file, the model, the engine and the language. Reopen the video and
   the subtitles are there immediately. Change the model and the cache is
@@ -265,8 +271,8 @@ is not complete, and the plugin asks before it writes one.
 | Language | `zh` | ISO code of the speech, or `auto` to detect it |
 | The script of the Chinese subtitles | `Simplified Chinese` | `Simplified Chinese`, `Traditional Chinese`, or `As the model wrote it` — see below |
 | Language of the plugin | `auto` | The language of the menu and the messages: the one of the system, `zh` or `en` |
-| Chunk length | `30` | Seconds per chunk. Longer chunks give the model more context |
-| Overlap | `2` | Extra audio decoded after each chunk so sentences are not cut in half |
+| Chunk length | `120` | Seconds per chunk. Longer chunks give the model more context |
+| Overlap | `5` | Extra audio decoded after each chunk so sentences are not cut in half |
 | Transcribe automatically when a video is opened | on | Turn this off to only transcribe when you ask for it |
 | Load the cached subtitles when a video is opened | on | Load the transcript when a video is opened |
 
@@ -425,6 +431,21 @@ when a word happens to straddle it. This is normal and harmless: the
 timestamps never overlap and no part of the file is dropped. Raising the
 chunk length in the settings reduces the number of boundaries.
 
+A chunk is also the piece of audio the model is given on its own, and the
+model starts every chunk without knowing what was said before it. A sentence
+that is cut in two is heard badly: on a lecture, the wrong term comes out. The
+default length of a hundred and twenty seconds was measured against thirty on
+a recording of a course — the terms came out right, and the whole file was
+transcribed three times faster, because the recognition program is started
+once per chunk and every start loads the model again.
+
+The first chunk is the exception: it is cut to thirty seconds, because the
+first subtitles cannot appear before the first chunk is done and every start
+of the recognition program loads the model again. The short first chunk puts
+the first subtitles on screen within a few seconds of opening the file; the
+chunks after it are full length. The same cut is applied around the playhead
+when a file is reopened in the middle, so resuming is as quick as opening.
+
 ---
 
 ## Security
@@ -481,7 +502,6 @@ plugin carries it. The two have to be the same, and the build checks that.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the way the code is put together
 and for the list of things to try after a change.
-[TESTING.md](TESTING.md) lists every test case and what it checks.
 
 ---
 

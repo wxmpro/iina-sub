@@ -12,13 +12,16 @@
 
 #include "whisper.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dirent.h>
 #include <fstream>
 #include <string>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 // The library calls this to report how far it is. The plugin does not read
@@ -170,7 +173,134 @@ static void usage() {
             "  --prompt TEXT  the text the model starts with, which tells it\n"
             "                 in what style and in what script to write\n"
             "  -np       no progress is printed\n"
-            "  -pp       the progress is printed\n");
+            "  -pp       the progress is printed\n"
+            "  --server DIR   stay running and watch DIR for requests, so that\n"
+            "                 the model is loaded once and used for many files\n");
+}
+
+// ---------------------------------------------------------------------------
+// The server mode
+//
+// Loading the model costs several seconds, and the plugin asks for one short
+// piece of audio at a time. A run of the program per piece spends most of its
+// time loading the model again and again. In the server mode the model is
+// loaded once and the program stays running, watching a folder for requests.
+//
+// A request is a file named req-<id>.txt that holds four lines: the WAV file
+// to read, the base name of the result, the language, and the prompt. The
+// answer is a file named ack-<id>.txt that holds "OK" or "ERR <message>",
+// and the result is written next to the base name, like in the one-shot run.
+//
+// The program leaves on its own after fifteen minutes without a request, so
+// a player that went away cannot leave it behind for ever.
+// ---------------------------------------------------------------------------
+
+static const long SERVER_IDLE_LIMIT_SECONDS = 15 * 60;
+
+static bool oldestRequest(const std::string & dir, std::string & reqPath, std::string & id) {
+    DIR * d = opendir(dir.c_str());
+    if (!d) return false;
+    std::vector<std::string> names;
+    struct dirent * e;
+    while ((e = readdir(d)) != nullptr) {
+        std::string name = e->d_name;
+        if (name.rfind("req-", 0) != 0) continue;
+        if (name.size() <= 8) continue;
+        if (name.compare(name.size() - 4, 4, ".txt") != 0) continue;
+        names.push_back(name);
+    }
+    closedir(d);
+    if (names.empty()) return false;
+    std::sort(names.begin(), names.end());
+    reqPath = dir + "/" + names[0];
+    id = names[0].substr(4, names[0].size() - 8);
+    return true;
+}
+
+static void writeAck(const std::string & dir, const std::string & id, const std::string & message) {
+    std::ofstream out(dir + "/ack-" + id + ".txt");
+    out << message << std::endl;
+}
+
+static int serverMain(const std::string & dir, const std::string & model, int threads) {
+    {
+        std::ofstream pid(dir + "/server.pid");
+        pid << getpid() << std::endl;
+    }
+
+    struct whisper_context_params contextParams = whisper_context_default_params();
+    contextParams.use_gpu = true;
+    struct whisper_context * ctx = whisper_init_from_file_with_params(model.c_str(), contextParams);
+    if (ctx == nullptr) {
+        std::ofstream failed(dir + "/server.failed");
+        failed << "the model could not be loaded: " << model << std::endl;
+        return 1;
+    }
+
+    time_t lastActivity = time(nullptr);
+    whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
+
+    while (true) {
+        std::string reqPath;
+        std::string id;
+        if (!oldestRequest(dir, reqPath, id)) {
+            if (time(nullptr) - lastActivity > SERVER_IDLE_LIMIT_SECONDS) break;
+            usleep(200000);
+            continue;
+        }
+        lastActivity = time(nullptr);
+
+        std::ifstream req(reqPath.c_str());
+        std::string wavPath, outBase, language, prompt;
+        std::getline(req, wavPath);
+        std::getline(req, outBase);
+        std::getline(req, language);
+        std::getline(req, prompt);
+        req.close();
+        std::remove(reqPath.c_str());
+
+        if (wavPath.empty() || outBase.empty()) {
+            writeAck(dir, id, "ERR the request is incomplete");
+            continue;
+        }
+
+        std::vector<float> samples;
+        if (!read_wav(wavPath, samples) || samples.empty()) {
+            writeAck(dir, id, "ERR the audio could not be read: " + wavPath);
+            continue;
+        }
+
+        params.print_progress = false;
+        params.print_realtime = false;
+        params.print_special = false;
+        params.print_timestamps = false;
+        params.translate = false;
+        params.single_segment = false;
+        params.no_context = false;
+        params.no_timestamps = false;
+        params.suppress_blank = true;
+        params.suppress_nst = false;
+        params.progress_callback = nullptr;
+        params.progress_callback_user_data = nullptr;
+        params.language = language.c_str();
+        params.detect_language = language == "auto";
+        params.initial_prompt = prompt.empty() ? nullptr : prompt.c_str();
+        params.n_threads = threads;
+
+        if (whisper_full(ctx, params, samples.data(), static_cast<int>(samples.size())) != 0) {
+            writeAck(dir, id, "ERR the speech could not be recognised");
+            continue;
+        }
+        if (!write_srt(ctx, outBase + ".srt")) {
+            writeAck(dir, id, "ERR the result could not be written");
+            continue;
+        }
+        writeAck(dir, id, "OK");
+    }
+
+    whisper_free(ctx);
+    std::remove((dir + "/server.pid").c_str());
+    return 0;
 }
 
 int main(int argc, char ** argv) {
@@ -179,6 +309,7 @@ int main(int argc, char ** argv) {
     std::string language = "zh";
     std::string outputBase;
     std::string prompt;
+    std::string serverDir;
     int threads = 0;
 
     for (int i = 1; i < argc; i++) {
@@ -207,6 +338,8 @@ int main(int argc, char ** argv) {
             // how the caller asks for Simplified Chinese or for Traditional
             // Chinese.
             prompt = next("--prompt");
+        } else if (arg == "--server") {
+            serverDir = next("--server");
         } else if (arg == "-osrt" || arg == "--output-srt") {
             // The program writes a SubRip file and nothing else, so the
             // format the caller asks for is the one it gets. The option is
@@ -226,9 +359,14 @@ int main(int argc, char ** argv) {
         }
     }
 
-    if (model.empty() || audio.empty() || outputBase.empty()) {
+    if (model.empty()) {
         usage();
         return 1;
+    }
+
+    if (!serverDir.empty()) {
+        int threadsToUse = threads > 0 ? threads : std::min(4, static_cast<int32_t>(std::thread::hardware_concurrency()));
+        return serverMain(serverDir, model, threadsToUse);
     }
 
     std::vector<float> samples;

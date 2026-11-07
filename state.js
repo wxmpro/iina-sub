@@ -32,6 +32,21 @@ function freshState() {
     /** The files of the batch that are still to be done. */
     batchQueue: [],
 
+    /**
+     * The files that are waiting for the running transcription to finish.
+     *
+     * A file that is opened while another one is being transcribed does not
+     * have to wait for ever: it is put aside here and started as soon as the
+     * running one is done. Without this, opening a second video while the
+     * first one is still running would leave the second one without
+     * subtitles, and nothing would start it later.
+     *
+     * It is a list and not a single entry: the player can open several files
+     * in a row (it puts the rest of a folder into the playlist), and every
+     * one of them wants subtitles.
+     */
+    pending: [],
+
     /** The small log that the sidebar shows. */
     activityLog: [],
 
