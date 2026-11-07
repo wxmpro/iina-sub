@@ -44,7 +44,6 @@ pref.html
 sidebar.html
 README.md
 README.zh-CN.md
-TESTING.md
 docs/screenshot.png
 docs/OPENCC-LICENSE.txt
 LICENSE"

@@ -176,10 +176,6 @@ it, so please check a change in the places it can go wrong:
 - the menu, the messages and the sidebar are in the language of the user;
 - a program that hangs is really stopped, and the machine is free afterwards.
 
-The tests are not part of the repository. [TESTING.md](TESTING.md) lists
-every case and what it checks, so that a change can be judged by the list
-and not only by the result of a run.
-
 ## Reporting a problem
 
 Please tell us the version of IINA, the version of the plugin, the engine and

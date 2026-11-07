@@ -7,8 +7,6 @@ tools/vina
 # The helper that cuts a clip out of a recording, only used while developing
 tools/trim.swift
 
-# The test suite is kept with the sources but is not part of the release
-tests/
 
 # macOS
 .DS_Store
